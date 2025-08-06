@@ -1,42 +1,91 @@
 import sqlite3
+import os
 
-DB_PATH = "data/school.db"
+DB_FILE = os.path.join(os.path.dirname(__file__), "school.db")
+
 
 def get_connection():
-    return sqlite3.connect(DB_PATH, check_same_thread=False)
+    return sqlite3.connect(DB_FILE)
 
-def add_user(student_id, student_name, email, password_hash, role, class_name, section):
-    conn = get_connection()
+
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
+
+    # Users table
     cur.execute("""
-        INSERT INTO users(student_id, student_name, email, password, role, class, section)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (student_id, student_name, email, password_hash, role, class_name, section))
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_id TEXT UNIQUE,
+        student_name TEXT,
+        email TEXT UNIQUE,
+        password TEXT,
+        role TEXT,
+        class TEXT,
+        section TEXT,
+        student_phone TEXT,
+        parent_phone TEXT
+    )
+    """)
+
+    # Marks table
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS marks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_id TEXT,
+        subject TEXT,
+        marks INTEGER,
+        class TEXT,
+        section TEXT,
+        submitted_by TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    # Attendance table
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS attendance (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_id TEXT,
+        date TEXT,
+        status TEXT,
+        submitted_by TEXT,
+        UNIQUE(student_id, date)
+    )
+    """)
+
+    # ✅ Timetable table
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS timetable (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        class TEXT,
+        section TEXT,
+        day TEXT,
+        period1 TEXT,
+        period2 TEXT,
+        period3 TEXT,
+        period4 TEXT,
+        period5 TEXT,
+        period6 TEXT,
+        period7 TEXT
+    )
+    """)
+
     conn.commit()
     conn.close()
 
-def add_mark(student_id, subject, marks, submitted_by, class_name, section):
+
+def add_mark(student_id, subject, marks, submitted_by, student_class, section):
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
-        INSERT INTO marks(student_id, subject, marks, class, section, submitted_by)
+        INSERT INTO marks (student_id, subject, marks, class, section, submitted_by)
         VALUES (?, ?, ?, ?, ?, ?)
-    """, (student_id, subject, marks, class_name, section, submitted_by))
+    """, (student_id, subject, marks, student_class, section, submitted_by))
     conn.commit()
     conn.close()
 
-def fetch_marks_for_student(student_id):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT subject, marks, class, section, timestamp FROM marks WHERE student_id=?", (student_id,))
-    data = cur.fetchall()
-    conn.close()
-    return data
 
-def fetch_all_users():
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT student_id, student_name, email, role, class, section FROM users")
-    data = cur.fetchall()
-    conn.close()
-    return data
+# Optional: Initialize DB on import
+if __name__ == "__main__":
+    init_db()
