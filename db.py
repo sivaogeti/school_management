@@ -1,10 +1,10 @@
 import sqlite3
 import os
 
-# ✅ Ensure DB is stored in the data folder
-BASE_DIR = os.path.dirname(__file__)
+# ✅ Always use absolute path for Streamlit Cloud
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
-os.makedirs(DATA_DIR, exist_ok=True)  # Auto-create data folder if missing
+os.makedirs(DATA_DIR, exist_ok=True)
 
 DB_FILE = os.path.join(DATA_DIR, "school.db")
 
@@ -15,7 +15,6 @@ def get_connection():
 
 
 def init_db():
-    """Initialize all tables if they don't exist."""
     conn = get_connection()
     cur = conn.cursor()
 
@@ -78,12 +77,20 @@ def init_db():
     )
     """)
 
+    # ✅ Ensure a default admin user exists
+    cur.execute("SELECT COUNT(*) FROM users WHERE role='Admin'")
+    if cur.fetchone()[0] == 0:
+        cur.execute("""
+        INSERT INTO users (student_id, student_name, email, password, role)
+        VALUES (NULL, 'Administrator', 'admin@school.com', 'admin123', 'Admin')
+        """)
+        print("✅ Default admin user created: admin@school.com / admin123")
+
     conn.commit()
     conn.close()
 
 
 def add_mark(student_id, subject, marks, submitted_by, student_class, section):
-    """Insert a new mark record."""
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
@@ -94,13 +101,12 @@ def add_mark(student_id, subject, marks, submitted_by, student_class, section):
     conn.close()
 
 
-# ✅ Auto-init DB on import (for Streamlit Cloud)
+# ✅ Auto-init DB and print debug info on import
 init_db()
+print(f"✅ Database initialized at: {DB_FILE}")
 
-if __name__ == "__main__":
-    print(f"✅ Database ready at: {DB_FILE}")
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT name FROM sqlite_master WHERE type='table';")
-    print("Tables in DB:", [row[0] for row in cur.fetchall()])
-    conn.close()
+conn = get_connection()
+cur = conn.cursor()
+cur.execute("SELECT name FROM sqlite_master WHERE type='table';")
+print("✅ Tables in DB:", [row[0] for row in cur.fetchall()])
+conn.close()
