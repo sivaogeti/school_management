@@ -1,12 +1,12 @@
 import streamlit as st
 import sqlite3
-import os
 import pandas as pd
+import os
 from datetime import date
 from db import get_connection, add_mark
 
 # =========================
-# 🔹 Teacher Role Check
+# 🔹 Role Check
 # =========================
 if "user" not in st.session_state:
     st.error("❌ Please login first!")
@@ -21,15 +21,17 @@ st.title("👩‍🏫 Teacher Dashboard")
 # =========================
 # 🔹 Sidebar Navigation
 # =========================
-st.sidebar.title("👩‍🏫 Teacher Panel")
 menu = st.sidebar.radio(
-    "Navigation",
-    ["Marks Update", "Attendance Update"]
+    "📌 Navigation",
+    ["Marks Update", "Attendance Update", "Timetable", "Logout"]
 )
 
-if st.sidebar.button("Logout"):
+# =========================
+# 🔹 Logout
+# =========================
+if menu == "Logout":
     st.session_state.clear()
-    st.success("Logged out successfully!")
+    st.success("✅ Logged out successfully!")
     st.rerun()
 
 # =========================
@@ -39,17 +41,7 @@ conn = get_connection()
 cur = conn.cursor()
 
 # =========================
-# 🔹 Load Subjects Dynamically
-# =========================
-subjects_file = os.path.join(os.path.dirname(__file__), "..", "data", "subjects.txt")
-if os.path.exists(subjects_file):
-    with open(subjects_file, "r") as f:
-        subjects = [line.strip() for line in f if line.strip()]
-else:
-    subjects = ["Telugu", "Hindi", "English", "Maths", "Science", "Social"]
-
-# =========================
-# 🔹 Common: Fetch Class & Section for Dropdowns
+# 🔹 Common: Fetch Class & Section
 # =========================
 cur.execute("SELECT DISTINCT class FROM users WHERE role='Student' ORDER BY class")
 classes = [row[0] for row in cur.fetchall() if row[0]]
@@ -60,7 +52,10 @@ if not classes:
 
 class_choice = st.selectbox("Select Class", classes, key="class_choice")
 
-cur.execute("SELECT DISTINCT section FROM users WHERE role='Student' AND class=? ORDER BY section", (class_choice,))
+cur.execute(
+    "SELECT DISTINCT section FROM users WHERE role='Student' AND class=? ORDER BY section",
+    (class_choice,),
+)
 sections = [row[0] for row in cur.fetchall() if row[0]]
 
 if sections:
@@ -71,17 +66,25 @@ else:
     st.stop()
 
 # =========================
-# 🔹 Menu 1: Marks Update
+# 🔹 Marks Update
 # =========================
 if menu == "Marks Update":
+    subjects_file = os.path.join(os.path.dirname(__file__), "..", "data", "subjects.txt")
+    if os.path.exists(subjects_file):
+        with open(subjects_file, "r") as f:
+            subjects = [line.strip() for line in f if line.strip()]
+    else:
+        subjects = ["Telugu", "Hindi", "English", "Maths", "Science", "Social"]
 
-    # Fetch students
-    cur.execute("""
+    cur.execute(
+        """
         SELECT student_id, student_name 
         FROM users 
         WHERE role='Student' AND class=? AND section=? 
         ORDER BY student_name
-    """, (class_choice, section_choice))
+        """,
+        (class_choice, section_choice),
+    )
     students = cur.fetchall()
 
     if not students:
@@ -93,73 +96,78 @@ if menu == "Marks Update":
 
     student_id = student_choice.split("(")[-1].replace(")", "").strip()
 
-    # Select Subject & Enter Marks
     subject_choice = st.selectbox("Select Subject", subjects, key="subject_choice")
     marks = st.number_input("Enter Marks", 0, 100, key="marks_input")
 
-    # Submit Marks
     if st.button("✅ Submit Marks"):
-        # Check duplicate marks
-        cur.execute("""
+        cur.execute(
+            """
             SELECT 1 FROM marks 
             WHERE student_id=? AND subject=? AND submitted_by=?
-        """, (student_id, subject_choice, st.session_state["user"]["email"]))
-        
+            """,
+            (student_id, subject_choice, st.session_state["user"]["email"]),
+        )
+
         if cur.fetchone():
             st.warning("⚠️ Marks for this student & subject already submitted by you.")
         else:
-            # Insert mark
-            add_mark(student_id, subject_choice, marks, st.session_state["user"]["email"], class_choice, section_choice)
+            add_mark(
+                student_id,
+                subject_choice,
+                marks,
+                st.session_state["user"]["email"],
+                class_choice,
+                section_choice,
+            )
             st.success(f"✅ Marks submitted for {student_choice} in {subject_choice}: {marks}")
 
-            # WhatsApp notification
             try:
                 from gupshup_sender import notify_student_mark
+
                 notify_student_mark(student_id, subject_choice, marks)
             except Exception as e:
                 st.info(f"ℹ️ WhatsApp notification skipped: {e}")
 
-            # Auto-clear form
-            for key in ["student_choice", "subject_choice", "marks_input"]:
-                if key in st.session_state:
-                    del st.session_state[key]
             st.rerun()
 
-    # View Marks Submitted
+    # View Marks
     st.subheader("📋 Marks Submitted by You")
-    cur.execute("""
+    cur.execute(
+        """
         SELECT student_id, subject, marks, class, section, timestamp
         FROM marks
         WHERE submitted_by=?
         ORDER BY timestamp DESC
-    """, (st.session_state["user"]["email"],))
+        """,
+        (st.session_state["user"]["email"],),
+    )
     marks_data = cur.fetchall()
 
     if marks_data:
         marks_df = pd.DataFrame(
             marks_data,
-            columns=["Student ID", "Subject", "Marks", "Class", "Section", "Submitted On"]
+            columns=["Student ID", "Subject", "Marks", "Class", "Section", "Submitted On"],
         )
         st.dataframe(marks_df, use_container_width=True)
     else:
         st.info("ℹ️ No marks submitted yet.")
 
-
 # =========================
-# 🔹 Menu 2: Attendance Update
+# 🔹 Attendance Update
 # =========================
 elif menu == "Attendance Update":
-
     st.subheader("📅 Mark Attendance")
     attendance_date = st.date_input("Select Date", value=date.today(), key="attendance_date")
 
-    # Fetch students for selected class & section
-    cur.execute("""
+    cur.execute(
+        """
         SELECT student_id, student_name 
         FROM users 
         WHERE role='Student' AND class=? AND section=? 
         ORDER BY student_name
-    """, (class_choice, section_choice))
+        """,
+        (class_choice, section_choice),
+    )
     attendance_students = cur.fetchall()
 
     if attendance_students:
@@ -169,35 +177,68 @@ elif menu == "Attendance Update":
             attendance_status[sid] = st.selectbox(
                 f"{sname} ({sid})",
                 ["Present", "Absent", "Late"],
-                key=f"att_{sid}_{attendance_date}"
+                key=f"att_{sid}_{attendance_date}",
             )
 
         if st.button("✅ Submit Attendance"):
             for sid, status in attendance_status.items():
                 try:
-                    cur.execute("""
+                    cur.execute(
+                        """
                         INSERT OR REPLACE INTO attendance(student_id, date, status, submitted_by)
                         VALUES (?, ?, ?, ?)
-                    """, (sid, attendance_date.isoformat(), status, st.session_state["user"]["email"]))
-                    
-                    # Notify parents if Absent
+                        """,
+                        (sid, attendance_date.isoformat(), status, st.session_state["user"]["email"]),
+                    )
+
                     if status == "Absent":
                         try:
                             from gupshup_sender import notify_attendance
+
                             notify_attendance(sid, status, attendance_date.isoformat())
                         except Exception as e:
                             st.info(f"ℹ️ WhatsApp notification skipped: {e}")
-                
+
                 except Exception as e:
                     st.error(f"❌ Error saving attendance for {sid}: {e}")
 
             conn.commit()
             st.success(f"✅ Attendance marked for {attendance_date}")
-           st.rerun()
+            st.rerun()
     else:
         st.warning("⚠️ No students found for this Class & Section.")
 
 # =========================
-# 🔹 Close DB
+# 🔹 Timetable View
 # =========================
+elif menu == "Timetable":
+    st.subheader("🗓️ View Timetable")
+
+    cur.execute(
+        """
+        SELECT day, period1, period2, period3, period4, period5, period6, period7
+        FROM timetable
+        WHERE class=? AND section=?
+        ORDER BY 
+            CASE day
+                WHEN 'Monday' THEN 1
+                WHEN 'Tuesday' THEN 2
+                WHEN 'Wednesday' THEN 3
+                WHEN 'Thursday' THEN 4
+                WHEN 'Friday' THEN 5
+                WHEN 'Saturday' THEN 6
+                ELSE 7
+            END
+        """,
+        (class_choice, section_choice),
+    )
+    tt_data = cur.fetchall()
+
+    if tt_data:
+        columns = ["Day", "Period 1", "Period 2", "Period 3", "Period 4", "Period 5", "Period 6", "Period 7"]
+        tt_df = pd.DataFrame(tt_data, columns=columns)
+        st.dataframe(tt_df, use_container_width=True)
+    else:
+        st.info("ℹ️ No timetable uploaded for this Class & Section yet.")
+
 conn.close()
