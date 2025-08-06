@@ -1,15 +1,22 @@
 import sqlite3
 import os
 
-DB_FILE = os.path.join(os.path.dirname(__file__), "school.db")
+# ✅ Ensure DB is stored in the data folder
+BASE_DIR = os.path.dirname(__file__)
+DATA_DIR = os.path.join(BASE_DIR, "data")
+os.makedirs(DATA_DIR, exist_ok=True)  # Auto-create data folder if missing
+
+DB_FILE = os.path.join(DATA_DIR, "school.db")
 
 
 def get_connection():
-    return sqlite3.connect(DB_FILE)
+    """Return a SQLite connection compatible with Streamlit."""
+    return sqlite3.connect(DB_FILE, check_same_thread=False)
 
 
 def init_db():
-    conn = sqlite3.connect(DB_FILE)
+    """Initialize all tables if they don't exist."""
+    conn = get_connection()
     cur = conn.cursor()
 
     # Users table
@@ -54,7 +61,7 @@ def init_db():
     )
     """)
 
-    # ✅ Timetable table
+    # Timetable table
     cur.execute("""
     CREATE TABLE IF NOT EXISTS timetable (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,6 +83,7 @@ def init_db():
 
 
 def add_mark(student_id, subject, marks, submitted_by, student_class, section):
+    """Insert a new mark record."""
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
@@ -86,6 +94,13 @@ def add_mark(student_id, subject, marks, submitted_by, student_class, section):
     conn.close()
 
 
-# Optional: Initialize DB on import
+# ✅ Auto-init DB on import (for Streamlit Cloud)
+init_db()
+
 if __name__ == "__main__":
-    init_db()
+    print(f"✅ Database ready at: {DB_FILE}")
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table';")
+    print("Tables in DB:", [row[0] for row in cur.fetchall()])
+    conn.close()
