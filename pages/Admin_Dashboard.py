@@ -4,6 +4,9 @@ import sqlite3
 import os
 from db import get_connection, init_db
 
+from db import init_db
+init_db()  # Ensure tables exist
+
 # =========================
 # 🔹 Admin Role Check
 # =========================
