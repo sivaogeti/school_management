@@ -193,7 +193,7 @@ elif menu == "Attendance Update":
 
             conn.commit()
             st.success(f"✅ Attendance marked for {attendance_date}")
-            st.experimental_rerun()
+           st.rerun()
     else:
         st.warning("⚠️ No students found for this Class & Section.")
 
