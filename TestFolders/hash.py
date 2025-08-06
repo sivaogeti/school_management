@@ -1,2 +1,2 @@
 import hashlib
-print(hashlib.sha256("teacher123".encode()).hexdigest())
+print(hashlib.sha256("student123".encode()).hexdigest())
