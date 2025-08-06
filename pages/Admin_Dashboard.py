@@ -1,8 +1,8 @@
 import streamlit as st
-import sqlite3
 import pandas as pd
-from db import get_connection
-from datetime import datetime
+import sqlite3
+import os
+from db import get_connection, init_db
 
 # =========================
 # 🔹 Admin Role Check
@@ -18,137 +18,73 @@ st.set_page_config(page_title="Admin Dashboard", layout="wide")
 st.title("🛠️ Admin Dashboard")
 
 # =========================
-# 🔹 Sidebar Navigation
+# 🔹 Sidebar Menu
 # =========================
-st.sidebar.title("🛠️ Admin Panel")
-menu = st.sidebar.radio(
-    "Navigation",
-    [
-        "Manage Users",
-        "View Marks",
-        "View Attendance",
-        "Broadcast Notices"
-    ]
-)
+menu = st.sidebar.radio("📌 Navigation", ["User Management", "Timetable Upload", "Logout"])
 
-if st.sidebar.button("Logout"):
+# =========================
+# 🔹 Logout
+# =========================
+if menu == "Logout":
     st.session_state.clear()
-    st.success("Logged out successfully!")
+    st.success("✅ Logged out successfully!")
     st.rerun()
 
 # =========================
-# 🔹 DB Connection
+# 🔹 User Management
 # =========================
-conn = get_connection()
-cur = conn.cursor()
-
-# =========================
-# 🔹 1. Manage Users
-# =========================
-if menu == "Manage Users":
+elif menu == "User Management":
     st.subheader("👥 Manage Users")
 
-    cur.execute("SELECT id, student_id, student_name, email, role, class, section, student_phone, parent_phone FROM users ORDER BY role, class, section, student_name")
-    users_data = cur.fetchall()
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT student_id, student_name, email, role, class, section FROM users ORDER BY role, student_name")
+    data = cur.fetchall()
+    conn.close()
 
-    if users_data:
-        df_users = pd.DataFrame(
-            users_data,
-            columns=["ID", "Student ID", "Student Name", "Email", "Role", "Class", "Section", "Student Phone", "Parent Phone"]
-        )
-        st.dataframe(df_users, use_container_width=True)
+    if data:
+        df = pd.DataFrame(data, columns=["Student ID", "Name", "Email", "Role", "Class", "Section"])
+        st.dataframe(df, use_container_width=True)
     else:
         st.info("ℹ️ No users found in the system.")
 
-    st.markdown("---")
-    st.subheader("➕ Add New Student")
-    student_id = st.text_input("Student ID (e.g., STU004)")
-    student_name = st.text_input("Student Name")
-    student_email = st.text_input("Student Email")
-    student_class = st.text_input("Class (e.g., 6)")
-    student_section = st.text_input("Section (e.g., A)")
-    student_phone = st.text_input("Student WhatsApp No (+91...)")
-    parent_phone = st.text_input("Parent WhatsApp No (+91...)")
+# =========================
+# 🔹 Timetable Upload
+# =========================
+elif menu == "Timetable Upload":
+    st.subheader("📅 Upload Class Timetable")
 
-    if st.button("✅ Add Student"):
-        if not all([student_id, student_name, student_class, student_section]):
-            st.warning("⚠️ Please fill all required fields.")
+    st.write("Upload a CSV/Excel file with columns:")
+    st.code("class,section,day,period1,period2,period3,period4,period5,period6,period7")
+
+    uploaded_file = st.file_uploader("Upload Timetable File", type=["csv", "xlsx"])
+
+    if uploaded_file is not None:
+        # Read file into DataFrame
+        if uploaded_file.name.endswith(".csv"):
+            df = pd.read_csv(uploaded_file)
         else:
-            try:
+            df = pd.read_excel(uploaded_file)
+
+        st.write("Preview of Uploaded File:")
+        st.dataframe(df.head(), use_container_width=True)
+
+        if st.button("✅ Save to Database"):
+            conn = get_connection()
+            cur = conn.cursor()
+
+            inserted = 0
+            for _, row in df.iterrows():
                 cur.execute("""
-                    INSERT INTO users (student_id, student_name, email, role, class, section, student_phone, parent_phone, password)
-                    VALUES (?, ?, ?, 'Student', ?, ?, ?, ?, ?)
-                """, (student_id, student_name, student_email or None, student_class, student_section, student_phone, parent_phone, "student123"))
-                conn.commit()
-                st.success(f"✅ Student {student_name} ({student_id}) added successfully!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ Error adding student: {e}")
+                    INSERT INTO timetable(class, section, day, period1, period2, period3, period4, period5, period6, period7)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    row['class'], row['section'], row['day'],
+                    row['period1'], row['period2'], row['period3'], row['period4'],
+                    row['period5'], row['period6'], row['period7']
+                ))
+                inserted += 1
 
-# =========================
-# 🔹 2. View Marks
-# =========================
-elif menu == "View Marks":
-    st.subheader("📚 View All Marks")
-
-    cur.execute("""
-        SELECT student_id, subject, marks, class, section, submitted_by, timestamp
-        FROM marks
-        ORDER BY timestamp DESC
-    """)
-    marks_data = cur.fetchall()
-
-    if marks_data:
-        df_marks = pd.DataFrame(
-            marks_data,
-            columns=["Student ID", "Subject", "Marks", "Class", "Section", "Submitted By", "Submitted On"]
-        )
-        st.dataframe(df_marks, use_container_width=True)
-    else:
-        st.info("ℹ️ No marks data found.")
-
-# =========================
-# 🔹 3. View Attendance
-# =========================
-elif menu == "View Attendance":
-    st.subheader("📅 View Attendance Records")
-
-    cur.execute("""
-        SELECT student_id, date, status, submitted_by
-        FROM attendance
-        ORDER BY date DESC
-    """)
-    attendance_data = cur.fetchall()
-
-    if attendance_data:
-        df_attendance = pd.DataFrame(
-            attendance_data,
-            columns=["Student ID", "Date", "Status", "Marked By"]
-        )
-        st.dataframe(df_attendance, use_container_width=True)
-    else:
-        st.info("ℹ️ No attendance data found.")
-
-# =========================
-# 🔹 4. Broadcast Notices
-# =========================
-elif menu == "Broadcast Notices":
-    st.subheader("📢 Broadcast a School Notice")
-    notice_title = st.text_input("Notice Title")
-    notice_message = st.text_area("Notice Message")
-
-    if st.button("📨 Send Notice to All"):
-        if not notice_title or not notice_message:
-            st.warning("⚠️ Please enter both title and message.")
-        else:
-            try:
-                from gupshup_sender import broadcast_notice
-                broadcast_notice(notice_title, notice_message)
-                st.success("✅ Notice broadcasted to all students & parents via WhatsApp.")
-            except Exception as e:
-                st.error(f"❌ Error sending notice: {e}")
-
-# =========================
-# 🔹 Close DB
-# =========================
-conn.close()
+            conn.commit()
+            conn.close()
+            st.success(f"✅ Timetable uploaded successfully with {inserted} rows.")
