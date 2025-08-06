@@ -1,18 +1,107 @@
 import streamlit as st
 import hashlib
-from db import get_connection
+import sqlite3
+import os
 
+DB_FILE = os.path.join(os.getcwd(), "school.db")
+
+# =========================
+# 🔹 Ensure DB Initialization
+# =========================
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+
+    # Users table
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id TEXT,
+            student_name TEXT,
+            email TEXT UNIQUE,
+            password TEXT,
+            role TEXT,
+            class TEXT,
+            section TEXT,
+            student_phone TEXT,
+            parent_phone TEXT
+        )
+    """)
+
+    # Marks table
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS marks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id TEXT,
+            subject TEXT,
+            marks INTEGER,
+            class TEXT,
+            section TEXT,
+            submitted_by TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Attendance table
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS attendance (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id TEXT,
+            date TEXT,
+            status TEXT,
+            submitted_by TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(student_id, date)
+        )
+    """)
+
+    # Timetable table
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS timetable (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            class TEXT,
+            section TEXT,
+            day TEXT,
+            period INTEGER,
+            subject TEXT,
+            teacher_email TEXT
+        )
+    """)
+
+    # ✅ Insert default admin if not exists
+    cur.execute("SELECT 1 FROM users WHERE role='Admin' LIMIT 1")
+    if not cur.fetchone():
+        admin_pw = hashlib.sha256("admin123".encode()).hexdigest()
+        cur.execute("""
+            INSERT INTO users (student_name, email, password, role)
+            VALUES ('Admin User', 'admin@school.com', ?, 'Admin')
+        """, (admin_pw,))
+        print("✅ Default admin created: admin@school.com / admin123")
+
+    conn.commit()
+    conn.close()
+
+
+# =========================
+# 🔹 DB Connection
+# =========================
+def get_connection():
+    return sqlite3.connect(DB_FILE)
+
+
+# =========================
+# 🔹 Streamlit App
+# =========================
 st.set_page_config(page_title="School Management", layout="wide")
 
-# ======================
-# LOGIN FUNCTION
-# ======================
+# Auto-initialize DB
+init_db()
+
 def login():
     st.title("🎓 School Management Login")
 
     role_choice = st.radio("Login as", ["Admin", "Teacher", "Student"])
     
-    # Student logs in with Student ID, others with email
     if role_choice == "Student":
         user_id = st.text_input("Student ID")
     else:
@@ -40,7 +129,6 @@ def login():
         conn.close()
 
         if user:
-            # user tuple → (id, student_id, student_name, email, password, role, class, section)
             st.session_state["user"] = {
                 "student_id": user[1],
                 "student_name": user[2],
@@ -50,22 +138,13 @@ def login():
                 "section": user[7],
             }
             st.success(f"✅ Logged in as {role_choice}")
-            st.rerun()
+            st.switch_page(f"pages/{role_choice}_Dashboard.py")
         else:
             st.error("❌ Invalid credentials")
 
-# ======================
-# PAGE ROUTING
-# ======================
+
 if "user" not in st.session_state:
     login()
 else:
     role = st.session_state["user"]["role"]
-    
-    # Route to dashboards
-    if role == "Admin":
-        st.switch_page("pages/Admin_Dashboard.py")
-    elif role == "Teacher":
-        st.switch_page("pages/Teacher_Dashboard.py")
-    else:
-        st.switch_page("pages/Student_Dashboard.py")
+    st.switch_page(f"pages/{role}_Dashboard.py")
