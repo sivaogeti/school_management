@@ -97,27 +97,35 @@ st.set_page_config(page_title="School Management", layout="wide")
 # Auto-initialize DB
 init_db()
 
-def login():
-    st.title("🎓 School Management Login")
+import hashlib
+import streamlit as st
+import sqlite3
+from db import get_connection
 
-    role_choice = st.radio("Login as", ["Admin", "Teacher", "Student"])
+def login():
+    st.title("🔑 School Management Login")
+
+    role_choice = st.selectbox("Select Role", ["Admin", "Teacher", "Student"])
     
     if role_choice == "Student":
         user_id = st.text_input("Student ID")
     else:
         user_id = st.text_input("Email")
-
+    
     password = st.text_input("Password", type="password")
 
     if st.button("Login"):
         conn = get_connection()
         cur = conn.cursor()
+
+        # Hash entered password
         hashed_pw = hashlib.sha256(password.encode()).hexdigest()
 
+        # Different queries for Students vs Admin/Teacher
         if role_choice == "Student":
             cur.execute(
-                "SELECT * FROM users WHERE student_id=? AND password=? AND role='Student'",
-                (user_id, hashed_pw)
+                "SELECT * FROM users WHERE student_id=? AND password=? AND role=?",
+                (user_id, hashed_pw, role_choice)
             )
         else:
             cur.execute(
@@ -130,21 +138,18 @@ def login():
 
         if user:
             st.session_state["user"] = {
-                "student_id": user[1],
-                "student_name": user[2],
-                "email": user[3],
-                "role": user[5],
-                "class": user[6],
-                "section": user[7],
+                "id": user[0],
+                "role": role_choice,
+                "email": user[3] if role_choice != "Student" else None,
+                "student_id": user[1] if role_choice == "Student" else None
             }
-            st.success(f"✅ Logged in as {role_choice}")
-            st.switch_page(f"pages/{role_choice}_Dashboard.py")
+            st.success("✅ Login successful!")
+
+            if role_choice == "Admin":
+                st.switch_page("pages/Admin_Dashboard.py")
+            elif role_choice == "Teacher":
+                st.switch_page("pages/Teacher_Dashboard.py")
+            else:
+                st.switch_page("pages/Student_Dashboard.py")
         else:
-            st.error("❌ Invalid credentials")
-
-
-if "user" not in st.session_state:
-    login()
-else:
-    role = st.session_state["user"]["role"]
-    st.switch_page(f"pages/{role}_Dashboard.py")
+            st.error("❌ Invalid credentials. Please try again.")
