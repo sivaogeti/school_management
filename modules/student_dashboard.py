@@ -143,25 +143,25 @@ def render_student_dashboard(user):
             st.info("No payments recorded yet.")
 
         # Razorpay Integration – Pay Now button only if due > 0
-        if pending_due > 0:
-            st.markdown("---")
-            st.subheader("💳 Pay Pending Fee Now")
-            if st.button("Pay Now via Razorpay"):
-                with st.spinner("Creating payment order..."):
-                    try:
-                        response = requests.post("http://localhost:5001/create-order", json={
-                            "amount": pending_due,
-                            "student_id": user["student_id"]
-                        })
-                        response.raise_for_status()
-                        data = response.json()
-                        payment_url = f"https://api.razorpay.com/v1/checkout/embedded?order_id={data['order_id']}&key_id={data['key']}"
-                        st.success("Redirecting to Razorpay payment page...")
-                        webbrowser.open_new_tab(payment_url)
+        # if pending_due > 0:
+            # st.markdown("---")
+            # st.subheader("💳 Pay Pending Fee Now")
+            # if st.button("Pay Now via Razorpay"):
+                # with st.spinner("Creating payment order..."):
+                    # try:
+                        # response = requests.post("http://localhost:5001/create-order", json={
+                            # "amount": pending_due,
+                            # "student_id": user["student_id"]
+                        # })
+                        # response.raise_for_status()
+                        # data = response.json()
+                        # payment_url = f"https://api.razorpay.com/v1/checkout/embedded?order_id={data['order_id']}&key_id={data['key']}"
+                        # st.success("Redirecting to Razorpay payment page...")
+                        # webbrowser.open_new_tab(payment_url)
 
-                        # Simulate WhatsApp Notification
-                        st.toast(f"WhatsApp alert sent to parent for ₹{pending_due:,.2f} payment.")
-                    except Exception as e:
-                        st.error(f"Payment initiation failed: {e}")
+                        # # Simulate WhatsApp Notification
+                        # st.toast(f"WhatsApp alert sent to parent for ₹{pending_due:,.2f} payment.")
+                    # except Exception as e:
+                        # st.error(f"Payment initiation failed: {e}")
 
     conn.close()
