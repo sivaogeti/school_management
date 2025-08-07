@@ -1,0 +1,6 @@
+streamlit
+pandas
+requests
+razorpay>=1.4.0
+setuptools
+flask
