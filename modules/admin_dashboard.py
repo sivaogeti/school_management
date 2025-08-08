@@ -1,13 +1,14 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime
 from db import get_connection
+from gupshup_sender import broadcast_notice  # NEW: WhatsApp broadcast
 
 def render_admin_dashboard():
     st.title("👑 Admin Dashboard")
 
     conn = get_connection()
     cur = conn.cursor()
-    
     
     # Sidebar Menu
     menu = st.sidebar.radio("📋 Menu", [
@@ -77,7 +78,6 @@ def render_admin_dashboard():
         section_list = [r[0] for r in cur.fetchall()]
         selected_section = st.selectbox("Select Section", section_list)
 
-        # Fetch attendance with JOIN to get class
         cur.execute("""
             SELECT a.student_id, a.date, a.status, a.submitted_by, u.class, u.section
             FROM attendance a
@@ -94,31 +94,47 @@ def render_admin_dashboard():
             st.info("No attendance records found.")
 
     # --------------------------
-    # 3️⃣ Manage Notices
+    # 3️⃣ Manage Notices (UPDATED for WhatsApp)
     # --------------------------
     elif menu == "📰 Manage Notices":
         st.subheader("Add New Notice")
-        new_notice = st.text_area("Enter Notice")
+
+        title = st.text_input("Notice Title")
+        new_notice = st.text_area("Enter Notice Message")
+        expiry_date = st.date_input("Expiry Date", value=datetime.today())
+
         if st.button("📢 Publish Notice", key="admin_publish_notice"):
             if new_notice.strip():
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS notices (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        title TEXT,
                         message TEXT,
+                        created_by TEXT,
+                        expiry_date DATE,
                         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
-                cur.execute("INSERT INTO notices (message) VALUES (?)", (new_notice.strip(),))
+                cur.execute("""
+                    INSERT INTO notices (title, message, created_by, expiry_date)
+                    VALUES (?, ?, ?, ?)
+                """, (title.strip(), new_notice.strip(), "Admin", expiry_date))
                 conn.commit()
+
                 st.success("✅ Notice published!")
+
+                # Send to WhatsApp via broadcast
+                broadcast_notice(title.strip(), new_notice.strip())
+
+                st.info("📢 Notice sent via WhatsApp to all students & parents.")
             else:
                 st.warning("Please enter a notice message.")
 
         st.subheader("All Notices")
-        cur.execute("SELECT message, timestamp FROM notices ORDER BY timestamp DESC")
+        cur.execute("SELECT title, message, expiry_date, timestamp FROM notices ORDER BY timestamp DESC")
         rows = cur.fetchall()
         if rows:
-            df = pd.DataFrame(rows, columns=["Notice", "Published On"])
+            df = pd.DataFrame(rows, columns=["Title", "Notice", "Expiry Date", "Published On"])
             st.dataframe(df, use_container_width=True)
         else:
             st.info("No notices yet.")
@@ -144,7 +160,6 @@ def render_admin_dashboard():
             if sections:
                 section_choice = st.selectbox("Select Section", sections, key="admin_tt_section")
 
-                # Show current timetable
                 st.subheader("Current Timetable")
                 cur.execute("""
                     SELECT day, period1, period2, period3, period4, period5, period6, period7
@@ -196,12 +211,11 @@ def render_admin_dashboard():
                         st.success(f"✅ Timetable updated for {day}")
 
     # --------------------------
-    # 5️⃣ Fee Overview (Now with class-wise dues)
+    # 5️⃣ Fee Overview
     # --------------------------
     elif menu == "💰 Fee Overview":
         st.subheader("Fee Management Overview")
 
-        # 1. Show Fee Structure
         cur.execute("SELECT class, total_fee FROM fees ORDER BY class")
         fee_rows = cur.fetchall()
         fee_df = pd.DataFrame(fee_rows, columns=["Class", "Total Fee"]) if fee_rows else pd.DataFrame(columns=["Class","Total Fee"])
@@ -211,15 +225,12 @@ def render_admin_dashboard():
         else:
             st.info("No fee structure defined yet.")
 
-        # 2. Class-wise summary: total students, collected, due
         st.write("### 2️⃣ Class-wise Collection & Dues Summary")
         summary_data = []
         for cls, total_fee in fee_rows:
-            # Total students in class
             cur.execute("SELECT COUNT(*) FROM users WHERE role='Student' AND class=?", (cls,))
             total_students = cur.fetchone()[0]
 
-            # All student_ids
             cur.execute("SELECT student_id FROM users WHERE role='Student' AND class=?", (cls,))
             student_ids = [r[0] for r in cur.fetchall()]
 

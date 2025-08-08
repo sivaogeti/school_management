@@ -1,27 +1,39 @@
-# gupshup_sender.py
 import sqlite3
 import requests
 from db import get_connection
-import streamlit as st
+import json 
 
-# ======================
-# WhatsApp Config
-# ======================
 GUPSHUP_API_KEY = "wquoxqv5af7kdj87parzqdedldwqusl3"
 GUPSHUP_SENDER = "917834811114"
 GUPSHUP_BOTNAME = "bananashopbot"
 
+def log_whatsapp(student_id, phone, message, status, response):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO whatsapp_logs (student_id, phone_number, message, status, response)
+        VALUES (?, ?, ?, ?, ?)
+    """, (student_id, phone, message, status, response))
+    conn.commit()
+    conn.close()
 
-def send_gupshup_whatsapp(to_number: str, message: str):
+def send_gupshup_whatsapp(to_number: str, message: str, student_id=None):
+    """Sends WhatsApp text via Gupshup API and logs it."""
     if not to_number:
         print("❌ No destination number provided for WhatsApp message")
         return False
-
+    
+    # Escape quotes for safe JSON
+    #safe_message = message.replace('"', '\\"')
+    
     payload = {
         "channel": "whatsapp",
         "source": GUPSHUP_SENDER,
-        "destination": to_number.replace("+", ""),
-        "message": f'{"{"}"type":"text","text":"{message}"{"}"}',
+        "destination": to_number.replace("+", ""),        
+        "message": json.dumps({
+            "type": "text",
+            "text": message
+        }),
         "src.name": GUPSHUP_BOTNAME
     }
 
@@ -33,18 +45,116 @@ def send_gupshup_whatsapp(to_number: str, message: str):
 
     try:
         response = requests.post("https://api.gupshup.io/wa/api/v1/msg", data=payload, headers=headers)
+        try:
+            resp_json = response.json()
+            api_status = resp_json.get("status", "").lower()
+            status = "SUCCESS" if api_status in ["submitted", "success"] else "FAILED"
+        except Exception:
+            status = "FAILED"
+        log_whatsapp(student_id, to_number, message, status, response.text)
         print(f"✅ Gupshup Status: {response.status_code} | {response.text}")
-        return response.status_code == 200
+        return status == "SUCCESS"
     except Exception as e:
+        log_whatsapp(student_id, to_number, message, "ERROR", str(e))
         print("❌ Error sending WhatsApp:", e)
         return False
+        
+        
+# -----------------------
+# NEW: Messaging Feature
+# -----------------------
+def send_in_app_and_whatsapp(sender_email, receiver_email, message_text):
+    """
+    Inserts message into DB and sends WhatsApp to the receiver if they have a phone number.
+    Works for both students and teachers.
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # Save in messages table
+    cur.execute("""
+        INSERT INTO messages (sender_email, receiver_email, message)
+        VALUES (?, ?, ?)
+    """, (sender_email, receiver_email, message_text))
+    conn.commit()
+
+    # Lookup receiver's details
+    cur.execute("""
+        SELECT student_id, student_phone, parent_phone
+        FROM users
+        WHERE email=?
+    """, (receiver_email,))
+    row = cur.fetchone()
+    conn.close()
+
+    if row:
+        student_id, student_phone, parent_phone = row
+        if student_phone:
+            send_gupshup_whatsapp(student_phone, message_text, student_id)
+        if parent_phone:
+            send_gupshup_whatsapp(parent_phone, f"👨‍👩‍👦 Parent Alert: {message_text}", student_id)
+    else:
+        print(f"❌ No phone details found for {receiver_email}")
 
 
-# ======================
-# School Notifications
-# ======================
+def send_in_app_and_whatsapp_to_student(sender_email, student_id, message_text):
+    """For teacher sending to student + parent."""
+    conn = get_connection()
+    cur = conn.cursor()
 
-def notify_student_mark(student_id: str, subject: str, marks: int):
+    # Find student's email + phone
+    cur.execute("""
+        SELECT email, student_phone, parent_phone
+        FROM users
+        WHERE student_id=?
+    """, (student_id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        print(f"❌ Student {student_id} not found")
+        return
+
+    student_email, student_phone, parent_phone = row
+
+    # Insert into messages
+    cur.execute("""
+        INSERT INTO messages (sender_email, receiver_email, message)
+        VALUES (?, ?, ?)
+    """, (sender_email, student_email, message_text))
+    conn.commit()
+    conn.close()
+
+    # Send WhatsApp to both
+    if student_phone:
+        send_gupshup_whatsapp(student_phone, message_text, student_id)
+    if parent_phone:
+        send_gupshup_whatsapp(parent_phone, f"👨‍👩‍👦 Parent Alert: {message_text}", student_id)
+
+
+def notify_student_marks_combined(student_id, marks_dict):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT student_name, student_phone, parent_phone FROM users WHERE student_id=? AND role='Student'",
+        (student_id,)
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        print(f"❌ Student {student_id} not found for WhatsApp marks notification")
+        return
+    student_name, student_phone, parent_phone = row
+    marks_text = "\n".join([f"{subj}: {mark}" for subj, mark in marks_dict.items()])
+    msg = f"📚 Marks Update for {student_name} ({student_id}):\n{marks_text}"
+    send_gupshup_whatsapp(student_phone, msg, student_id)
+    send_gupshup_whatsapp(parent_phone, f"👨‍👩‍👦 Parent Alert:\n{msg}", student_id)
+
+
+def notify_student_mark_bulk(student_id: str, marks_dict: dict):
+    """
+    Send one WhatsApp message with all marks for a student.
+    marks_dict = {"Telugu": 30, "Maths": 20, "Hindi": 30}
+    """
     conn = get_connection()
     cur = conn.cursor()
 
@@ -56,17 +166,43 @@ def notify_student_mark(student_id: str, subject: str, marks: int):
     conn.close()
 
     if not row:
-        print(f"❌ Student {student_id} not found for WhatsApp notification")
+        print(f"❌ Student {student_id} not found for WhatsApp bulk marks notification")
         return
 
     student_name, student_phone, parent_phone = row
 
-    msg = f"📚 Marks Update for {student_name} ({student_id}): {subject} = {marks}"
+    marks_lines = "\n".join([f"{sub}: {score}" for sub, score in marks_dict.items()])
+    msg = f"📚 Marks Update for {student_name} ({student_id}):\n{marks_lines}"
+
     print(f"Sending to Student → {student_id} → {student_phone}")
     send_gupshup_whatsapp(student_phone, msg)
 
     print(f"Sending to Parent → {student_id} → {parent_phone}")
-    send_gupshup_whatsapp(parent_phone, f"👨‍👩‍👦 Parent Alert: {msg}")
+    send_gupshup_whatsapp(parent_phone, f"👨‍👩‍👦 Parent Alert:\n{msg}")
+
+
+def notify_attendance(student_id, status, date_str):
+    if status != "Absent":
+        return
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT student_name, student_phone, parent_phone FROM users WHERE student_id=? AND role='Student'",
+        (student_id,)
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        print(f"❌ Student {student_id} not found for WhatsApp attendance notification")
+        return
+    student_name, student_phone, parent_phone = row
+    msg = f"📅 Attendance Update for {student_name} ({student_id}): {status} on {date_str}"
+    send_gupshup_whatsapp(student_phone, msg, student_id)
+    send_gupshup_whatsapp(parent_phone, f"👨‍👩‍👦 Parent Alert: {msg}", student_id)
+
+
+
+
 
 
 def notify_fee_payment(student_id: str, amount: float):
@@ -93,38 +229,6 @@ def notify_fee_payment(student_id: str, amount: float):
     send_gupshup_whatsapp(parent_phone, f"👨‍👩‍👦 Parent Alert: {msg}")
 
 
-def notify_attendance(student_id: str, status: str, date_str: str):
-    #st.info("In notify_attendance under gupshup_sender.py")
-    if status != "Absent":
-        return  # ❎ Only send WhatsApp if the student is marked Absent
-        
-    conn = get_connection()
-    cur = conn.cursor()
-
-    cur.execute(
-        "SELECT student_name, student_phone, parent_phone FROM users WHERE student_id=? AND role='Student'",
-        (student_id,)
-    )
-    row = cur.fetchone()
-    conn.close()
-
-    if not row:
-        print(f"❌ Student {student_id} not found for WhatsApp attendance notification")
-        return
-
-    student_name, student_phone, parent_phone = row
-
-    msg = f"📅 Attendance Update for {student_name} ({student_id}): {status} on {date_str}"
-
-    print(f"Sending to Student → {student_id} → {student_phone}")
-    #st.info("Sending to Student → {student_id} → {student_phone}")
-    send_gupshup_whatsapp(student_phone, msg)
-
-    print(f"Sending to Parent → {student_id} → {parent_phone}")
-    #st.info("Sending to Parent → {student_id} → {parent_phone}")
-    send_gupshup_whatsapp(parent_phone, f"👨‍👩‍👦 Parent Alert: {msg}")
-
-
 def broadcast_notice(title: str, message: str):
     conn = get_connection()
     cur = conn.cursor()
@@ -137,6 +241,42 @@ def broadcast_notice(title: str, message: str):
     for student_id, student_phone, parent_phone in rows:
         send_gupshup_whatsapp(student_phone, full_message)
         send_gupshup_whatsapp(parent_phone, f"👨‍👩‍👦 Parent Alert: {full_message}")
+
+
+def send_notice_whatsapp_to_class(class_name, section, title, message):
+    """
+    Send a notice via WhatsApp to all students & parents in the specified class/section.
+    If class_name or section is None, send to ALL users.
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+
+    if class_name and section:
+        cur.execute("""
+            SELECT student_id, student_phone, parent_phone
+            FROM users
+            WHERE role='Student' AND class=? AND section=?
+        """, (class_name, section))
+    else:
+        cur.execute("""
+            SELECT student_id, student_phone, parent_phone
+            FROM users
+            WHERE role='Student'
+        """)
+
+    recipients = cur.fetchall()
+    conn.close()
+
+    if not recipients:
+        return
+
+    for sid, sphone, pphone in recipients:
+        text = f"📢 School Notice: {title}\n\n{message}"
+        if sphone:
+            send_gupshup_whatsapp(sphone, text, sid)
+        if pphone:
+            send_gupshup_whatsapp(pphone, text, sid)
+
 
 
 if __name__ == "__main__":

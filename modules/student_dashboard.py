@@ -1,8 +1,8 @@
+# modules/student_dashboard.py
 import streamlit as st
 import pandas as pd
-import requests
-import webbrowser
 from db import get_connection
+from gupshup_sender import send_in_app_and_whatsapp  # handles DB-insert + WhatsApp send
 
 def render_student_dashboard(user):
     st.title(f"🎓 Welcome, {user.get('student_name','Student')}")
@@ -16,7 +16,9 @@ def render_student_dashboard(user):
         "🗕️ My Attendance",
         "📰 School Notices",
         "📆 My Timetable",
-        "💰 My Fees & Payments"
+        "💰 My Fees & Payments",
+        "📢 Message History",
+        "📨 Messages"
     ])
 
     # ---------------------------
@@ -62,19 +64,39 @@ def render_student_dashboard(user):
     # 3️⃣ School Notices
     # ---------------------------
     elif menu == "📰 School Notices":
-        cur.execute("SELECT message, timestamp FROM notices ORDER BY timestamp DESC")
+        # show only active notices for student's class/section
+        cur.execute("""
+            SELECT title, message, expiry_date, timestamp, class, section
+            FROM notices
+            WHERE (class IS NULL OR class=?)
+              AND (section IS NULL OR section=?)
+              AND (expiry_date IS NULL OR expiry_date >= date('now'))
+            ORDER BY timestamp DESC
+        """, (user.get("class"), user.get("section")))
         rows = cur.fetchall()
         if rows:
-            df = pd.DataFrame(rows, columns=["Notice", "Published On"])
-            st.dataframe(df, use_container_width=True)
+            for title, message, expiry, ts, cls, sec in rows:
+                st.markdown(f"### {title}")
+                st.write(message)
+                meta = f"📅 Posted: {ts}"
+                if expiry:
+                    meta += f" • Expires: {expiry}"
+                if cls:
+                    meta += f" • Class: {cls}"
+                if sec:
+                    meta += f" • Section: {sec}"
+                st.caption(meta)
+                st.markdown("---")
         else:
-            st.info("No notices published yet.")
+            st.info("No active notices.")
 
     # ---------------------------
     # 4️⃣ My Timetable
     # ---------------------------
     elif menu == "📆 My Timetable":
-        if not user.get("class") or not user.get("section"):
+        class_name = user.get("class")
+        section = user.get("section")
+        if not class_name or not section:
             st.warning("⚠️ Your class & section info is missing.")
         else:
             cur.execute("""
@@ -90,7 +112,7 @@ def render_student_dashboard(user):
                         WHEN 'Friday' THEN 5
                         WHEN 'Saturday' THEN 6
                     END
-            """, (user["class"], user["section"]))
+            """, (class_name, section))
             rows = cur.fetchall()
             if rows:
                 df = pd.DataFrame(rows, columns=[
@@ -107,7 +129,6 @@ def render_student_dashboard(user):
     elif menu == "💰 My Fees & Payments":
         st.subheader("💵 Payment History & Pending Dues")
 
-        # 1. Show payment history
         cur.execute("""
             SELECT amount, date, method
             FROM payments
@@ -116,15 +137,13 @@ def render_student_dashboard(user):
         """, (user["student_id"],))
         payments = cur.fetchall()
 
-        # 2. Fetch fee structure for this class
-        cur.execute("SELECT total_fee FROM fees WHERE class=?", (user["class"],))
+        cur.execute("SELECT total_fee FROM fees WHERE class=?", (user.get("class"),))
         row = cur.fetchone()
         total_fee = row[0] if row else 0
 
         paid_amount = sum(p[0] for p in payments)
         pending_due = max(total_fee - paid_amount, 0)
 
-        # Show fee summary in table
         st.write("### Fee Summary")
         fee_summary_df = pd.DataFrame([{
             "Total Fee (₹)": f"{total_fee:,.2f}",
@@ -133,7 +152,6 @@ def render_student_dashboard(user):
         }])
         st.dataframe(fee_summary_df, use_container_width=True)
 
-        # Payment History Table
         if payments:
             df = pd.DataFrame(payments, columns=["Amount (₹)", "Date", "Method"])
             st.write("### Payment History")
@@ -142,26 +160,73 @@ def render_student_dashboard(user):
         else:
             st.info("No payments recorded yet.")
 
-        # Razorpay Integration – Pay Now button only if due > 0
-        # if pending_due > 0:
-            # st.markdown("---")
-            # st.subheader("💳 Pay Pending Fee Now")
-            # if st.button("Pay Now via Razorpay"):
-                # with st.spinner("Creating payment order..."):
-                    # try:
-                        # response = requests.post("http://localhost:5001/create-order", json={
-                            # "amount": pending_due,
-                            # "student_id": user["student_id"]
-                        # })
-                        # response.raise_for_status()
-                        # data = response.json()
-                        # payment_url = f"https://api.razorpay.com/v1/checkout/embedded?order_id={data['order_id']}&key_id={data['key']}"
-                        # st.success("Redirecting to Razorpay payment page...")
-                        # webbrowser.open_new_tab(payment_url)
+    # ---------------------------
+    # 6️⃣ WhatsApp Message History
+    # ---------------------------
+    elif menu == "📢 Message History":
+        st.subheader("📢 WhatsApp Message History")
+        df = pd.read_sql_query("""
+            SELECT id, phone_number, message, status, response, timestamp
+            FROM whatsapp_logs
+            WHERE student_id=?
+            ORDER BY timestamp DESC
+        """, conn, params=(user["student_id"],))
+        if df.empty:
+            st.info("No message history available.")
+        else:
+            st.dataframe(df, use_container_width=True)
+            csv = df.to_csv(index=False)
+            st.download_button("⬇️ Export Message History", data=csv, file_name="message_history.csv", mime="text/csv")
 
-                        # # Simulate WhatsApp Notification
-                        # st.toast(f"WhatsApp alert sent to parent for ₹{pending_due:,.2f} payment.")
-                    # except Exception as e:
-                        # st.error(f"Payment initiation failed: {e}")
+    # ---------------------------
+    # 7️⃣ Messaging tab - send to teacher (in-app + WhatsApp)
+    # ---------------------------
+    elif menu == "📨 Messages":
+        st.subheader("📨 Message My Teacher")
+
+        class_name = user.get("class")
+        section = user.get("section")
+
+        if not class_name or not section:
+            st.warning("⚠️ Your class & section info is missing. Contact admin.")
+        else:
+            # Load teachers for this class & section
+            cur.execute("""
+                SELECT student_name, email
+                FROM users
+                WHERE role='Teacher' AND class=? AND section=?
+            """, (class_name, section))
+            teachers = cur.fetchall()
+
+            if not teachers:
+                st.info("No teacher assigned to your class yet.")
+            else:
+                teacher_map = {name: email for name, email in teachers}
+                teacher_choice = st.selectbox("Select Teacher", list(teacher_map.keys()))
+
+                message_text = st.text_area("Enter your message")
+                if st.button("Send Message"):
+                    if message_text.strip():
+                        # This helper inserts into messages table and sends WhatsApp to receiver (teacher) if phone present
+                        send_in_app_and_whatsapp(user["email"], teacher_map[teacher_choice], message_text.strip())
+                        st.success(f"✅ Message sent to {teacher_choice} (also on WhatsApp)")
+                    else:
+                        st.error("Please enter a message before sending.")
+
+            # Show conversation history (in-app only)
+            st.write("### 📜 Message History")
+            cur.execute("""
+                SELECT sender_email, receiver_email, message, timestamp
+                FROM messages
+                WHERE sender_email=? OR receiver_email=?
+                ORDER BY timestamp DESC
+            """, (user["email"], user["email"]))
+            msgs = cur.fetchall()
+            if msgs:
+                for sender, receiver, msg, ts in msgs:
+                    who = "You" if sender == user.get("email") else sender
+                    st.markdown(f"**{who}** → **{receiver}** ({ts}): {msg}")
+            else:
+                st.info("No conversation history found.")
 
     conn.close()

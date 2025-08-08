@@ -134,6 +134,59 @@ def init_db():
     )
     """)
 
+
+    # Add these inside init_db() in db.py after existing table creations
+
+    # Subjects Table
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS subjects (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        class TEXT,
+        section TEXT,
+        subject_name TEXT
+    )
+    """)
+
+    # WhatsApp Logs
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS whatsapp_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_id TEXT,
+        phone_number TEXT,
+        message TEXT,
+        status TEXT,
+        response TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    
+    # Inside init_db() in db.py after other table creations
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sender_id TEXT,
+        receiver_id TEXT,
+        sender_role TEXT,
+        message TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP        
+    )
+    """)
+    
+    # Notices table
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS notices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT,
+            message TEXT,
+            class TEXT,
+            section TEXT,
+            created_by TEXT,
+            expiry_date TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    
     conn.commit()
     conn.close()
 
@@ -340,6 +393,31 @@ def seed_assignments_and_exams():
     conn.commit()
     conn.close()
 
+def seed_default_subjects():
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM subjects")
+    if cur.fetchone()[0] == 0:
+        default = ["Telugu","Hindi","English","Maths","Science","Social"]
+        for cls in range(1, 11):
+            for sec in ["A","B"]:
+                for s in default:
+                    cur.execute("INSERT INTO subjects (class, section, subject_name) VALUES (?, ?, ?)", (str(cls), sec, s))
+        conn.commit()
+    conn.close()
+
+def create_notice(title, message, class_name, section, created_by, expiry_date):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO notices (title, message, class, section, created_by, expiry_date)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (title, message, class_name, section, created_by, expiry_date))
+    conn.commit()
+    conn.close()
+
+
+
 
 # -------------------------
 # Initialize DB & Seed All
@@ -354,3 +432,4 @@ seed_default_users()
 seed_random_marks_attendance_payments()
 seed_notices_and_timetable()
 seed_assignments_and_exams()
+seed_default_subjects()
