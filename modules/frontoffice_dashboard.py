@@ -38,6 +38,16 @@ def generate_gatepass(visitor_name, visitor_phone, student_name, student_phone, 
     doc.build(flow)
     return filename
 
+import sqlite3
+from db import get_connection
+
+def drop_visitor_log():
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("DROP TABLE IF EXISTS visitor_log")
+    conn.commit()
+    conn.close()
+    st.success("visitor_log table dropped. Restart the app to recreate it.")
 
 # --------------------------
 # Ensure DB tables exist
@@ -166,6 +176,8 @@ def grouped_sidebar():
 def render_frontoffice_dashboard(user=None):    
     st.markdown(_UI_CSS, unsafe_allow_html=True)  # ensure same styling
     st.title("🏢 Front Office Dashboard")
+    if st.button("🗑️ Drop Visitor Log Table"):
+        drop_visitor_log()
     _ensure_tables()
 
     conn = get_connection()
