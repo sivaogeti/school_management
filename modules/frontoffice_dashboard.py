@@ -176,8 +176,8 @@ def grouped_sidebar():
 def render_frontoffice_dashboard(user=None):    
     st.markdown(_UI_CSS, unsafe_allow_html=True)  # ensure same styling
     st.title("🏢 Front Office Dashboard")
-    if st.button("🗑️ Drop Visitor Log Table"):
-        drop_visitor_log()
+    #if st.button("🗑️ Drop Visitor Log Table"):
+        #drop_visitor_log()
     _ensure_tables()
 
     conn = get_connection()
