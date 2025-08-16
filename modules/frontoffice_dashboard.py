@@ -7,9 +7,37 @@ from db import get_connection
 from gupshup_sender import send_gupshup_whatsapp, send_file_upload_alert
 from db import insert_notice
 from modules.teacher_dashboard import _UI_CSS  # reuse same CSS
+import platform
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs("visitor_photos", exist_ok=True)
+
+
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
+from reportlab.lib.pagesizes import A6
+from reportlab.lib.styles import getSampleStyleSheet
+
+
+def generate_gatepass(visitor_name, visitor_phone, student_name, student_phone, purpose, photo_path):
+    filename = f"gatepass_{visitor_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf"
+    doc = SimpleDocTemplate(filename, pagesize=A6)
+    styles = getSampleStyleSheet()
+    flow = []
+
+    flow.append(Paragraph("🏫 School Gatepass", styles["Title"]))
+    flow.append(Paragraph(f"Visitor: {visitor_name} ({visitor_phone})", styles["Normal"]))
+    flow.append(Paragraph(f"Student: {student_name} ({student_phone})", styles["Normal"]))
+    flow.append(Paragraph(f"Purpose: {purpose}", styles["Normal"]))
+    flow.append(Paragraph(f"Issued On: {datetime.now().strftime('%Y-%m-%d %H:%M')}", styles["Normal"]))
+    flow.append(Spacer(1, 12))
+
+    if photo_path:
+        flow.append(Image(photo_path, width=100, height=100))
+
+    doc.build(flow)
+    return filename
+
 
 # --------------------------
 # Ensure DB tables exist
@@ -53,7 +81,14 @@ def _ensure_tables():
         issue_date TEXT, return_date TEXT, returned INTEGER DEFAULT 0)""")
     c.execute("""CREATE TABLE IF NOT EXISTS visitor_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT, purpose TEXT, in_time TEXT, out_time TEXT)""")
+        name TEXT,
+        phone TEXT,
+        student_name TEXT,
+        student_phone TEXT,
+        purpose TEXT,
+        photo_path TEXT,
+        in_time TEXT,
+        out_time TEXT)""")
     c.execute("""CREATE TABLE IF NOT EXISTS enquiries (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT, contact TEXT, query TEXT, follow_up_date TEXT)""")
@@ -277,13 +312,67 @@ def render_frontoffice_dashboard(user=None):
     # 🏢 Visitor Log
     elif route == "Visitors":
         st.subheader("🏢 Visitor Log")
-        st.markdown('<div class="card"><div class="card-title">➕ Add Visitor</div>', unsafe_allow_html=True)
-        name = st.text_input("Visitor Name")
-        ...
-        if st.button("Save Visitor"): ...
-        st.markdown('</div>', unsafe_allow_html=True)
-        ...
+        
+        # --- Add Visitor Card ---
+        st.markdown('<div class="card"><div class="card-title">➕ Add Visitor / Gatepass</div>', unsafe_allow_html=True)
 
+        visitor_name = st.text_input("Visitor Name")
+        visitor_phone = st.text_input("Visitor Phone No.")
+        student_name = st.text_input("Student Name")
+        student_phone = st.text_input("Student Phone No.")
+        purpose = st.text_area("Purpose of Taking Student Home (Gatepass)")
+
+        # Capture visitor photo
+        photo = st.camera_input("📷 Take Visitor Photo")
+
+        if st.button("Save Gatepass", use_container_width=True):
+            file_path = None
+            if photo:
+                os.makedirs("visitor_photos", exist_ok=True)
+                file_path = f"visitor_photos/{visitor_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d%H%M%S')}.png"
+                with open(file_path, "wb") as f:
+                    f.write(photo.getbuffer())
+
+            cur.execute("""
+                INSERT INTO visitor_log (name, phone, student_name, student_phone, purpose, photo_path, in_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (visitor_name, visitor_phone, student_name, student_phone, purpose, file_path, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+            conn.commit()
+            st.success("✅ Visitor & Gatepass recorded.")
+            
+            # Generate gatepass
+            pdf_file = generate_gatepass(visitor_name, visitor_phone, student_name, student_phone, purpose, file_path)
+            st.success(f"Gatepass generated: {pdf_file}")
+            with open(pdf_file, "rb") as f:
+                st.download_button("⬇️ Download Gatepass", f, file_name=pdf_file)  
+
+            
+            # Auto-print (Windows/Linux/macOS)
+            try:
+                if platform.system() == "Windows":
+                    os.startfile(pdf_file)
+                elif platform.system() == "Darwin":  # macOS
+                    os.system(f"lp {pdf_file}")
+                else:  # Linux
+                    os.system(f"lp {pdf_file}")
+            except Exception as e:
+                st.warning(f"Auto-print failed: {e}")
+            
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # --- Recent Visitors Card ---
+        st.markdown('<div class="card"><div class="card-title">🗂 Recent Visitors</div>', unsafe_allow_html=True)
+        cur.execute("SELECT id, name, phone, student_name, student_phone, purpose, in_time FROM visitor_log ORDER BY in_time DESC LIMIT 10")
+        rows = cur.fetchall()
+        
+        if rows:
+            df = pd.DataFrame(rows, columns=["ID", "Visitor", "Phone", "Student", "Student Phone", "Purpose", "In Time"])
+            st.dataframe(df, use_container_width=True)
+        else:
+            st.info("No visitor records yet.")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
     # 📞 Enquiries
     elif route == "enquiries":
         st.subheader("📞 Enquiries")
