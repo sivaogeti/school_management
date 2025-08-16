@@ -626,7 +626,11 @@ def init_db():
     CREATE TABLE IF NOT EXISTS visitor_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT,
+        phone TEXT,
+        student_name TEXT,
+        student_phone TEXT,
         purpose TEXT,
+        photo_path TEXT,
         in_time TEXT,
         out_time TEXT
     );
