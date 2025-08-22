@@ -227,14 +227,8 @@ if student_id and "student_id" not in st.session_state:
 # Initialize DB
 init_db()
 
-# Load Razorpay config (only once)
-RAZORPAY_CONFIG_PATH = "razorpay_config.json"
-if os.path.exists(RAZORPAY_CONFIG_PATH):
-    with open(RAZORPAY_CONFIG_PATH) as f:
-        razorpay_config = json.load(f)
-    razorpay_client = razorpay.Client(auth=(razorpay_config["key_id"], razorpay_config["key_secret"]))
-else:
-    razorpay_client = None
+# ✅ Use Streamlit secrets instead of JSON
+razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_SECRET))
 
 
 # =========================
