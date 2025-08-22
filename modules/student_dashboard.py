@@ -804,8 +804,7 @@ GROUPS = {
     "📘 Academics & Learning": {
         "color": "#2563eb",
         "items": [
-            ("📚 Chapter-wise Learning Insight", "#2563eb"),
-            ("📆 My Timetable", "#0ea5e9"),
+            ("📚 Chapter-wise Learning Insight", "#2563eb"),            
             ("🤖 AI Tutor (24/7)", "#9333ea"),
         ],
     },
