@@ -421,7 +421,7 @@ else:
                 <script src='https://checkout.razorpay.com/v1/checkout.js'></script>
                 <script>
                     var options = {{
-                        "key": "{razorpay_config['key_id']}",
+                        "key": "{RAZORPAY_KEY_ID}",
                         "amount": "{order['amount']}",
                         "currency": "INR",
                         "name": "School",
