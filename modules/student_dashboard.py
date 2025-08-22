@@ -143,7 +143,7 @@ import uuid
 import altair as alt 
 
 client = OpenAI(api_key=st.secrets["api_keys"]["openai_api_key"])
-st.write("DEBUG OpenAI Key starts with:", st.secrets["api_keys"]["openai_api_key"][:6])
+#st.write("DEBUG OpenAI Key starts with:", st.secrets["api_keys"]["openai_api_key"][:6])
 
 
 
