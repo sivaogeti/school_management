@@ -6,6 +6,12 @@ import razorpay
 import os
 import base64
 
+OPENAI_API_KEY = st.secrets["api_keys"]["openai_api_key"]
+YOUTUBE_API_KEY = st.secrets["api_keys"]["youtube_api_key"]
+RAZORPAY_KEY_ID = st.secrets["api_keys"]["razorpay_key_id"]
+RAZORPAY_SECRET = st.secrets["api_keys"]["razorpay_key_secret"]
+YOUTUBE_API_KEY = st.secrets["api_keys"]["youtube_api_key"]
+
 
 # --- GPS receiver (Flask in a background thread) ---
 import threading
