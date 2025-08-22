@@ -1,0 +1,79 @@
+-- Users table (student_id unique for students)
+CREATE TABLE IF NOT EXISTS users(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id TEXT UNIQUE,        
+    student_name TEXT,             
+    email TEXT,                    
+    password TEXT,                 
+    role TEXT NOT NULL,            
+    class TEXT,                    
+    section TEXT                   
+);
+
+-- Marks table
+CREATE TABLE IF NOT EXISTS marks(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    marks INTEGER NOT NULL,
+    class TEXT,
+    section TEXT,
+    submitted_by TEXT,              
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Notices table
+CREATE TABLE IF NOT EXISTS notices(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT,
+    message TEXT,
+    posted_by TEXT,
+    expiry_date TEXT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+
+CREATE TABLE IF NOT EXISTS attendance(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id TEXT NOT NULL,
+    date DATE NOT NULL,
+    status TEXT NOT NULL,       -- Present / Absent / Late
+    submitted_by TEXT,          -- teacher email
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(student_id, date)    -- Prevent duplicate attendance for the same day
+);
+
+
+def seed_transport(cur):
+    data = [
+        (1, 1, 101, 'Route A', 'Pickup Point A', 'Drop Point A',
+         'John Doe', '9876543210', 16.506174, 80.648015),
+        (2, 1, 102, 'Route A', 'Pickup Point B', 'Drop Point B',
+         'John Doe', '9876543210', 16.507200, 80.649500),
+        (3, 2, 103, 'Route B', 'Pickup Point C', 'Drop Point C',
+         'Jane Smith', '9876500000', 16.512000, 80.652000),
+    ]
+
+    cur.executemany("""
+        INSERT INTO student_transport
+        (student_id, fk_route_id, fk_student_id, route_name, pickup_point, drop_point, driver_name, driver_phone, bus_lat, bus_lon)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, data)
+
+-------
+Assignments 
+
+INSERT INTO assignments 
+(fk_school_id, fk_class_id, fk_assigned_by_id, title, subject, class, section, description, due_date, assigned_by, reviewed, student_id, timestamp)
+            VALUES (1, 1, 1, "English Homework", "English","10","A","Write an essay on 'The Importance of Reading Books' (200 words).", '2025-08-20','teacher@school.com','0','NULL','2025-08-14')
+			
+			INSERT INTO assignments 
+(fk_school_id, fk_class_id, fk_assigned_by_id, title, subject, class, section, description, due_date, assigned_by, reviewed, student_id, timestamp)
+            VALUES (1, 1, 1, "Math Practice", "Mathematics","10","A","Solve 10 problems from Algebra (Linear Equations)", '2025-08-20','teacher@school.com','0','NULL','2025-08-14')
+
+			
+			INSERT INTO assignments 
+(fk_school_id, fk_class_id, fk_assigned_by_id, title, subject, class, section, description, due_date, assigned_by, reviewed, student_id, timestamp)
+            VALUES (1, 1, 1, "Science Homework", "Science","10","A","Draw and label the structure of a plant cell.", '2025-08-20','teacher@school.com','0','NULL','2025-08-14')
+
+

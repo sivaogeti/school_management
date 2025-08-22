@@ -1,0 +1,7 @@
+student_id,student_name,email,password,role,class,section
+STU001,Ravi Kumar,,a4375b7abfa46c8e1d5e9ebae2fa4fc97e9c0c7dbfc0b7d0cd8b36d67a3a31ae,Student,6,A
+STU002,Priya Singh,,a4375b7abfa46c8e1d5e9ebae2fa4fc97e9c0c7dbfc0b7d0cd8b36d67a3a31ae,Student,6,A
+STU003,Arjun Reddy,,a4375b7abfa46c8e1d5e9ebae2fa4fc97e9c0c7dbfc0b7d0cd8b36d67a3a31ae,Student,7,B
+,,teacher1@school.com,2180f237d1f1d2c9baf9b6f78d486c36e8eae83b65483b06733c06d0c1dbfcb3,Teacher,,
+,,teacher2@school.com,2180f237d1f1d2c9baf9b6f78d486c36e8eae83b65483b06733c06d0c1dbfcb3,Teacher,,
+,,admin@school.com,240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9,Admin,,

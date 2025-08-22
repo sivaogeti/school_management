@@ -1,0 +1,4 @@
+student_id,subject,marks,class,section,submitted_by
+STU001,Math,85,6,A,teacher1@school.com
+STU002,English,78,6,A,teacher1@school.com
+STU003,Science,92,7,B,teacher2@school.com
