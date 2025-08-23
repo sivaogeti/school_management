@@ -25,7 +25,7 @@ import os
 
 api_key = st.secrets.get("OPENAI_API_KEY")
 
-OpenAI(api_key=api_key)
+#OpenAI(api_key=api_key)
 
 
 #client = OpenAI(
