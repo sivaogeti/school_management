@@ -134,6 +134,65 @@ def init_db():
         FOREIGN KEY(fk_class_id)  REFERENCES classes(id) ON DELETE SET NULL
     );
     """)
+    
+    #----------------------------------special_days----------------------------
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS special_days (
+        month TEXT NOT NULL,
+        year INTEGER NOT NULL,
+        row_order INTEGER NOT NULL,
+        col1 TEXT,
+        col2 TEXT,
+        col3 TEXT,
+        col4 TEXT,
+        col5 TEXT,
+        col6 TEXT,
+        PRIMARY KEY (month, year, row_order)
+    );
+    """)
+    
+    #competitions_meta 
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS competitions_meta (
+        academic_year TEXT PRIMARY KEY,
+        title TEXT
+    );
+    """)
+    
+    #competitions_enrichment
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS competitions_enrichment (
+        academic_year TEXT NOT NULL,            -- e.g., '2025-26'
+        row_order     INTEGER NOT NULL,
+        col1          TEXT,   -- MONTH
+        col2          TEXT,   -- COMPETITION / WORKSHOP
+        col3          TEXT,   -- THEME
+        PRIMARY KEY (academic_year, row_order)
+    );
+    """)
+    
+    #Key Guide Lines
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS key_guidelines (
+        academic_year TEXT PRIMARY KEY,
+        content_md    TEXT,
+        updated_at    TEXT
+    );
+    """)
+    
+    #Complaints & Suggestions
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS complaints_suggestions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_id TEXT NOT NULL,     -- foreign key to users/students
+        category TEXT,                -- 'Complaint' or 'Suggestion'
+        message TEXT NOT NULL,        -- full text
+        status TEXT DEFAULT 'Open',   -- Open, In Progress, Resolved
+        remarks TEXT,                 -- admin notes/response
+        created_at TEXT,              -- timestamp
+        updated_at TEXT
+    )
+    """)
 
     # ========= ACADEMICS =========
     cur.execute("""
@@ -148,8 +207,28 @@ def init_db():
         FOREIGN KEY(fk_class_id)  REFERENCES classes(id) ON DELETE SET NULL
     );
     """)
-
     
+    #TimeTable 
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS timetable (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        class_name TEXT NOT NULL,
+        section TEXT NOT NULL,
+        day_of_week INTEGER NOT NULL,   -- 1=Mon … 7=Sun
+        period_no INTEGER NOT NULL,     -- 1..N
+        start_time TEXT,
+        end_time TEXT,
+        slot_type TEXT DEFAULT 'TEACHING',  -- TEACHING / BREAK / LUNCH
+        label TEXT,                         -- "Period 1", "Lunch" etc
+        subject TEXT,
+        teacher TEXT,
+        room TEXT,
+        notes TEXT,
+        UNIQUE(class_name, section, day_of_week, period_no)
+    );
+    """)
+    
+    #Marks Table
     cur.execute("""
     CREATE TABLE IF NOT EXISTS marks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -342,23 +421,13 @@ def init_db():
     );
     """)
 
-    # Timetable (1 row per day/period)
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS timetable (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        fk_school_id INTEGER,
-        fk_class_id INTEGER,
-        -- legacy
-        class TEXT,
-        section TEXT,
-        day TEXT,           -- "Monday"..."Friday"
-        period INTEGER,     -- 1..7
-        subject TEXT,
-        teacher TEXT,
-        FOREIGN KEY(fk_school_id) REFERENCES schools(id) ON DELETE CASCADE,
-        FOREIGN KEY(fk_class_id)  REFERENCES classes(id) ON DELETE SET NULL
-    );
-    """)
+    
+    
+        
+    
+
+    
+    
 
     # ========= EXAMS =========
     cur.execute("""
@@ -377,29 +446,45 @@ def init_db():
         FOREIGN KEY(fk_class_id)  REFERENCES classes(id) ON DELETE SET NULL
     );
     """)
-
+    #Exam Schedule
     cur.execute("""
     CREATE TABLE IF NOT EXISTS exam_schedule (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        fk_school_id INTEGER,
-        fk_class_id INTEGER,
-        fk_assigned_by_id INTEGER,
-        fk_exam_id INTEGER,                -- normalized link to examinations
-        -- legacy
-        class TEXT,
-        section TEXT,
-        subject TEXT,
-        exam_date TEXT,
-        exam_time TEXT,
-        exam_type TEXT,
-        assigned_by TEXT,
-        FOREIGN KEY(fk_school_id)      REFERENCES schools(id)       ON DELETE CASCADE,
-        FOREIGN KEY(fk_class_id)       REFERENCES classes(id)       ON DELETE SET NULL,
-        FOREIGN KEY(fk_assigned_by_id) REFERENCES users(id)         ON DELETE SET NULL,
-        FOREIGN KEY(fk_exam_id)        REFERENCES examinations(exam_id) ON DELETE SET NULL
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      class_name TEXT NOT NULL,
+      section    TEXT NOT NULL,
+      exam_name  TEXT,          -- e.g., "Term 1", "UT-2"
+      subject    TEXT,
+      exam_date  DATE,
+      start_time TEXT,
+      end_time   TEXT,
+      venue      TEXT,
+      syllabus   TEXT,
+      notes      TEXT,
+      exam_type  TEXT DEFAULT 'EXAM',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    
+    #PTM schedule
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS ptm_schedule (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      class_name   TEXT NOT NULL,
+      section      TEXT NOT NULL,
+      meeting_date DATE,
+      start_time   TEXT,
+      end_time     TEXT,
+      venue        TEXT,
+      agenda       TEXT,
+      notes        TEXT,
+      created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     """)
 
+    
+    
+    
+    
     cur.execute("""
     CREATE TABLE IF NOT EXISTS exam_results (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -811,6 +896,22 @@ def init_db():
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     """)
+    
+    #contacts_directory
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS contacts_directory (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_no INTEGER NOT NULL DEFAULT 0,     -- display order
+        category TEXT,                           -- e.g., Academic Queries
+        title TEXT,                              -- short heading shown on card
+        contact_name TEXT,                       -- e.g., Mrs. Rekha Phulekar
+        designation TEXT,                        -- e.g., Principal
+        phone_primary TEXT,                      -- e.g., 9133356771
+        phone_alt TEXT,                          -- optional second number
+        notes TEXT,                              -- optional
+        is_active INTEGER NOT NULL DEFAULT 1
+    )
+    """)
 
     # ========= INDEXES (original + helpful safe additions) =========
     # original ones mentioned
@@ -827,11 +928,18 @@ def init_db():
     cur.execute("CREATE INDEX IF NOT EXISTS idx_payments_fk_student_id ON payments(fk_student_id);")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_notices_class_section ON notices(class, section);")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_assignments_class_section ON assignments(class, section);")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_exam_schedule_class_section ON exam_schedule(class, section);")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_timetable_class_section_day ON timetable(class, section, day);")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_exam_lookup ON exam_schedule (upper(class_name), upper(section), exam_date, upper(exam_type));")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_ptm_lookup ON ptm_schedule (upper(class_name), upper(section), meeting_date);")
+
+    
     cur.execute("CREATE INDEX IF NOT EXISTS idx_subjects_class_section ON subjects(class, section);")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_library_issues_book ON library_issues(fk_book_id);")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_library_issues_student ON library_issues(fk_student_id);")
+    
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_cs_student_id ON complaints_suggestions (student_id);")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_cs_created_at ON complaints_suggestions (created_at);")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_users_student_id ON users (student_id);")
+    
 
     
 
@@ -1079,15 +1187,6 @@ def seed_sample_users(school_id):
             ))
         print("✅ Default teachers created: teacher1..3@school.com / teacher123")
 
-    cur.execute("SELECT COUNT(*) FROM users WHERE role='Admin' AND fk_school_id=?", (school_id,))
-    if cur.fetchone()[0] == 0:
-        cur.execute("""
-            INSERT INTO users(
-                fk_school_id, student_id, student_name, name, email, password, role
-            ) VALUES (?, ?, ?, ?, ?, ?, 'Admin')
-        """, (school_id, "ADMIN01", "Admin User", "Admin User", "admin@school.com", "admin123"))
-        print("✅ Default admin created: admin@school.com / admin123")
-
     conn.commit()
     conn.close()
 
@@ -1175,25 +1274,7 @@ def seed_notices_homework_syllabus_timetable():
             """, (fk_school_id, fk_class_id, msg, msg, created_by))
         print("✅ Notices seeded.")
 
-    # Timetable (single 'period' column) — full table for all classes Mon–Fri periods 1..7
-    cur.execute("SELECT COUNT(*) FROM timetable")
-    if cur.fetchone()[0] == 0:
-        days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-        subjects = ["Telugu", "English", "Maths", "Science", "Social", "Games", "Library"]
-
-        cur.execute("SELECT id, fk_school_id, class_name, section FROM classes")
-        class_rows = cur.fetchall()
-        for cls_id, sch_id, class_name, section in class_rows:
-            for day in days:
-                for p in range(1, 8):
-                    subject = random.choice(subjects)
-                    teacher = f"Teacher_{random.randint(1, 5)}"
-                    cur.execute("""
-                        INSERT INTO timetable(
-                            fk_school_id, fk_class_id, class, section, day, period, subject, teacher
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (sch_id, cls_id, class_name, section, day, p, subject, teacher))
-        print("✅ Timetable seeded.")
+    
 
     # Homework (3+)
     cur.execute("SELECT COUNT(*) FROM homework")
@@ -1755,6 +1836,124 @@ def seed_achievements_and_principal_notes():
     conn.commit()
     conn.close()
 
+def seed_notices_homework_syllabus_timetable():
+    """
+    Seed notices (3+), timetable (full week), homework (3+), syllabus (3+),
+    plus exam & PTM schedules for testing.
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # -------------------
+    # Notices (at least 3)
+    # -------------------
+    cur.execute("SELECT COUNT(*) FROM notices")
+    if cur.fetchone()[0] == 0:
+        notices = [
+            ("Welcome back to school!", "System"),
+            ("PTM this Saturday", "System"),
+            ("Submit homework on time", "System")
+        ]
+        cur.execute("SELECT id FROM schools ORDER BY id LIMIT 1")
+        sch = cur.fetchone()
+        fk_school_id = sch[0] if sch else None
+        fk_class_id = None
+        if fk_school_id:
+            fk_class_id = _get_class_id(cur, fk_school_id, "1", "A")
+
+        for msg, created_by in notices:
+            cur.execute("""
+                INSERT INTO notices(
+                    fk_school_id, fk_class_id, fk_created_by_id,
+                    title, message, class, section, created_by, expiry_date, timestamp
+                ) VALUES (?, ?, NULL, ?, ?, NULL, NULL, ?, NULL, datetime('now'))
+            """, (fk_school_id, fk_class_id, msg, msg, created_by))
+        print("✅ Notices seeded.")
+
+    # -------------------
+    # Homework (3+)
+    # -------------------
+    cur.execute("SELECT COUNT(*) FROM homework")
+    if cur.fetchone()[0] == 0:
+        cur.execute("SELECT id, fk_school_id, class_name, section FROM classes LIMIT 3")
+        for cls_id, school_id, class_name, section in cur.fetchall():
+            for subj in ["English", "Maths", "Science"]:
+                due_date = (datetime.today() + timedelta(days=random.randint(1, 5))).strftime("%Y-%m-%d")
+                cur.execute("""
+                    INSERT INTO homework(
+                        fk_school_id, fk_class_id, fk_assigned_by_id,
+                        class, section, subject, description, due_date, file_url, assigned_by
+                    ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, NULL, ?)
+                """, (school_id, cls_id, class_name, section, subj,
+                      f"{subj} chapter practice", due_date, "teacher@school.com"))
+        print("✅ Homework seeded.")
+
+    # -------------------
+    # Syllabus (3+)
+    # -------------------
+    cur.execute("SELECT COUNT(*) FROM syllabus")
+    if cur.fetchone()[0] == 0:
+        cur.execute("SELECT id, fk_school_id, class_name, section FROM classes LIMIT 3")
+        for cls_id, school_id, class_name, section in cur.fetchall():
+            for subj in ["English", "Maths", "Science"]:
+                cur.execute("""
+                    INSERT INTO syllabus(
+                        fk_school_id, fk_class_id, fk_uploaded_by_id,
+                        class, section, subject, syllabus_text, file_url, uploaded_by
+                    ) VALUES (?, ?, NULL, ?, ?, ?, ?, NULL, ?)
+                """, (school_id, cls_id, class_name, section, subj,
+                      f"Syllabus outline for {subj} ({class_name}{section})", "teacher@school.com"))
+        print("✅ Syllabus seeded.")
+
+
+
+
+    conn.commit()
+    conn.close()
+
+
+# ensure you have a hash_password() same as elsewhere in your codebase
+def _hash(pw: str) -> str:
+    import hashlib
+    return hashlib.sha256(pw.encode("utf-8")).hexdigest()
+
+def seed_default_admin(school_id: int):
+    email = "admin@school.com"
+    default_pw = _hash("admin123")  # hash to match your existing scheme
+    
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # 1) If this email already exists for this school, just ensure role is Admin
+    cur.execute("SELECT id, role FROM users WHERE fk_school_id=? AND email=?", (school_id, email))
+    row = cur.fetchone()
+    if row:
+        user_id, role = row
+        # If role differs, promote to Admin (don’t clobber name/id unless you want to)
+        if role != "Admin":
+            cur.execute("UPDATE users SET role='Admin' WHERE id=?", (user_id,))
+        # (optional) reset password:
+        # cur.execute("UPDATE users SET password=? WHERE id=?", (default_pw, user_id))
+        print(f"ℹ️ Using existing '{email}' as Admin (user_id={user_id}).")
+        return
+
+    # 2) Otherwise insert a fresh Admin
+    cur.execute("""
+        INSERT INTO users(
+            fk_school_id, student_id, student_name, name, email, password, role
+        ) VALUES (?, ?, ?, ?, ?, ?, 'Admin')
+    """, (school_id, "ADMIN01", "Admin User", "Admin User", email, default_pw))
+    print("✅ Default admin created: admin@school.com / admin123")
+    
+    conn.commit()
+    conn.close()
+
+def _romanize(cls: str) -> str:
+    to_roman = {"1":"I","2":"II","3":"III","4":"IV","5":"V","6":"VI","7":"VII","8":"VIII","9":"IX","10":"X"}
+    c = str(cls or "").strip().upper().replace("CLASS ","")
+    return to_roman.get(c, c)
+
+
 
 # -------------------------
 # Bootstrap
@@ -1790,5 +1989,6 @@ seed_health_admissions_leave()
 seed_staff_and_attendance()
 seed_school_front_office()
 seed_achievements_and_principal_notes()
-
+seed_default_admin(_demo_school_id)
+seed_notices_homework_syllabus_timetable()
 # End of file

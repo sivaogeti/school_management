@@ -21,3 +21,4 @@ tools
 PyPDF2
 pytesseract
 folium
+openpyxl

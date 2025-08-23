@@ -2,6 +2,13 @@
 import os, re, base64, hashlib, requests
 from datetime import datetime
 import streamlit as st
+from pathlib import Path
+import pandas as pd
+import datetime as dt
+from modules.special_days_repo import load_month_df, DEFAULT_COLUMNS
+from modules.competitions_repo import load_items, DEFAULT_COLUMNS, load_title
+from modules.competitions_repo import load_items, DEFAULT_COLUMNS, load_meta, ensure_competitions_meta_schema, ensure_competitions_meta_columns
+from modules.key_guidelines_repo import load_guidelines
 
 
 def _ensure_green_bg():
@@ -142,8 +149,7 @@ from modules.curated_videos import CURATED_VIDEOS
 import uuid
 import altair as alt 
 
-client = OpenAI(api_key=st.secrets["api_keys"]["openai_api_key"])
-#st.write("DEBUG OpenAI Key starts with:", st.secrets["api_keys"]["openai_api_key"][:6])
+client = OpenAI()
 
 
 
@@ -607,6 +613,106 @@ def render_receipts(user):
     except Exception as e:
         st.error(f"Error loading receipts: {e}")
 
+#render_complaints_student
+def render_complaints_student(user: dict, conn):
+    import streamlit as st
+    from datetime import datetime
+
+    _render_card("💬 Complaints & Suggestions")
+
+    # in render_complaints_student(...)
+    student_key = str(user.get("id") or user.get("student_id") or "")
+    if not student_key:
+        st.error("Your account is missing a student id. Please contact admin.")
+        _end_card(); return
+
+    category = st.radio("Type", ["Complaint", "Suggestion"], horizontal=True, key="cs_type")
+    message  = st.text_area("Your message", key="cs_msg")
+
+    if st.button("Submit", use_container_width=True, key="cs_submit"):
+        if message.strip():
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO complaints_suggestions
+                (student_id, category, message, status, created_at, updated_at)
+                VALUES (?, ?, ?, 'Open', ?, ?)
+            """, (student_key, category, message.strip(),
+                  datetime.utcnow().isoformat(), datetime.utcnow().isoformat()))
+            conn.commit()
+            st.success("Submitted successfully!")
+        else:
+            st.warning("Message cannot be empty.")
+
+    st.markdown("### Your Previous Submissions")
+    
+    # always define a cursor before executing a query
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT category, message, status, remarks, created_at
+        FROM complaints_suggestions
+        WHERE student_id=? ORDER BY created_at DESC
+    """, (student_key,))
+    rows = cur.fetchall()
+    
+    if not rows:
+        st.info("No complaints/suggestions yet.")
+    else:
+        import pandas as pd
+        df = pd.DataFrame(rows, columns=["Type","Message","Status","Admin Remarks","Submitted On"])
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
+    _end_card()
+
+
+#Contacts Directory
+def render_contacts_student(user, conn):
+    import streamlit as st    
+    from modules.contacts_repo import load_contacts
+    
+    _render_card("📞 Stay Connected: School Contact Directory")
+
+    st.caption("All the essential contact details for administration, academic departments, and support.")
+
+    df = load_contacts(conn)
+    if df.empty:
+        st.info("Contacts will appear here once published by the school.")
+        _end_card(); return
+
+    # --- Card template (no outer <div>s to avoid mismatches) ---
+    def card_html(title, desig, name, p1, p2, notes):
+        tel_links = " ".join([f"<a href='tel:{x}' style='text-decoration:none;color:#065f46;'>📞 {x}</a>"
+                              for x in [p1, p2] if x])
+        return f"""
+        <div style="
+          border:1px solid #e2e8f0; background:#f8fafc; border-radius:12px;
+          padding:0.9rem; box-shadow:0 2px 4px rgba(0,0,0,.05); min-height:120px;">
+          <div style="font-weight:700; font-size:1rem; margin-bottom:.25rem; color:#0f172a">{title}</div>
+          <div style="color:#334155; margin-bottom:.35rem">{desig} – {name}</div>
+          <div style="margin-bottom:.25rem">{tel_links}</div>
+          {f"<div style='font-size:.9rem; color:#475569'>{notes}</div>" if notes else ""}
+        </div>
+        """
+
+    # Render by category; 2 cards per row
+    for cat, g in df.groupby("category", sort=False):
+        st.markdown(f"#### {cat}")
+        rows = list(g.itertuples(index=False))
+        for i in range(0, len(rows), 2):
+            cols = st.columns(2, gap="large")  # side-by-side with space
+            for col, r in zip(cols, rows[i:i+2]):
+                with col:
+                    html = card_html(
+                        r.title or "",
+                        r.designation or "",
+                        r.contact_name or "",
+                        (r.phone_primary or "").strip(),
+                        (r.phone_alt or "").strip(),
+                        r.notes or "",
+                    )
+                    st.markdown(html, unsafe_allow_html=True)
+
+    _end_card()
+
 
 # 🔹 Common UI helper functions
 def render_card(title: str):
@@ -618,6 +724,82 @@ def end_card():
     """Adds spacing after a section to keep UI clean."""
     st.write("")
     st.write("")
+
+#Key Guidelines
+
+def _acad_year_default():
+    today = dt.date.today()
+    start = today.year if today.month >= 4 else today.year - 1
+    return f"{start}-{str(start+1)[-2:]}"
+
+#"key guidelines"
+def _render_guidelines_html(raw: str) -> None:
+    """
+    Render admin text with:
+      - Markdown support
+      - Simple callouts:
+          [INFO] text -> blue box
+          [TIP]  text -> green box
+          [WARN] text -> amber/red box
+    """
+    import re
+    def box(cls, text):
+        return f"""
+        <div class="{cls}">
+            <div class="kg-pill">{cls.split('-')[-1].upper()}</div>
+            <div class="kg-body">{text}</div>
+        </div>"""
+    html = raw
+
+    # escape < and > that are not part of our injected HTML later
+    # (Streamlit markdown will still handle markdown safely)
+    # Convert our tags to styled boxes
+    html = re.sub(r"^\[INFO\]\s*(.+)$",  lambda m: box("kg-info",  m.group(1)), html, flags=re.MULTILINE)
+    html = re.sub(r"^\[TIP\]\s*(.+)$",   lambda m: box("kg-tip",   m.group(1)), html, flags=re.MULTILINE)
+    html = re.sub(r"^\[WARN\]\s*(.+)$",  lambda m: box("kg-warn",  m.group(1)), html, flags=re.MULTILINE)
+
+    st.markdown("""
+    <style>
+    .kg-info,.kg-tip,.kg-warn{
+        border-radius:12px; padding:12px 14px; margin:8px 0; display:flex; gap:10px; align-items:flex-start;
+        border:1px solid rgba(0,0,0,.06);
+        box-shadow:0 1px 2px rgba(0,0,0,.04);
+        background:#f9fafb;
+    }
+    .kg-info{ border-left:6px solid #2563eb; background:#eff6ff;}
+    .kg-tip { border-left:6px solid #16a34a; background:#ecfdf5;}
+    .kg-warn{ border-left:6px solid #ca8a04; background:#fffbeb;}
+    .kg-pill{
+        font-size:10px; letter-spacing:.6px; font-weight:800; padding:2px 8px; border-radius:999px;
+        background:rgba(255,255,255,.8); color:#111827; border:1px solid rgba(0,0,0,.06); margin-top:2px;
+    }
+    .kg-body{ font-size:14px; line-height:1.5; }
+    .kg-hero h3{ margin:0 0 4px 0; color:#166534; }
+    .kg-hero p{ margin:0 0 8px 0; color:#14532d;}
+    </style>
+    """, unsafe_allow_html=True)
+
+    # let Streamlit do markdown (headings, lists, bold, etc.)
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def render_key_guidelines(user: dict | None, conn):
+    
+    _render_card("🗝️ Key Guidelines")
+
+    year = st.selectbox("Academic Year", ["2025-26", "2024-25"], index=0, key="kg_student_year")
+
+    md = load_guidelines(conn, year)
+    if not md or not md.strip():
+        st.info("Guidelines will appear here when published by the school.")
+        _end_card(); return
+
+    st.markdown(GUIDELINES_CSS, unsafe_allow_html=True)
+    html = render_guidelines_html(md)
+    st.markdown(f"<div class='kg-wrap'>{html}</div>", unsafe_allow_html=True)
+    _end_card()
+
+
 
 #Marks
 def render_my_marks(student_id: int) -> None:
@@ -852,12 +1034,13 @@ GROUPS = {
         "color": "#4f46e5",
         "items": [
             ("🖼️ Gallery", "#16a34a"),
-            ("📅 Timetable", "#2563eb"),
+            ("📆 My Timetable", "#2563eb"),
             ("🎉 Special Days", "#f59e0b"),
             ("📊 Academic Assessment Calendar", "#9333ea"),
             ("🏆 Competitions & Enrichment Programs", "#dc2626"),
-            ("📘 Key Guidelines", "#0ea5e9"),
+            ("📌 Key Guidelines", "#0ea5e9"),
             ("💬 Complaints & Suggestions", "#6b7280"),
+            ("📞 Contacts", "#14b8a6"),
         ],
     }
 }
@@ -932,6 +1115,112 @@ def _load_logo_bytes():
 def _chunk(seq, n):
     for i in range(0, len(seq), n):
         yield seq[i:i+n]
+
+#Following one for Special Days 
+MONTHS = [
+    "January","February","March","April","May","June",
+    "July","August","September","October","November","December"
+]
+
+DEFAULT_COLUMNS = [
+    "Date",          # e.g., 15
+    "Day",           # e.g., Mon
+    "Occasion",      # e.g., Independence Day Celebration
+    "Details",       # e.g., Assembly at 8:30 AM
+    "Dress/Color",   # e.g., White/Tricolor
+    "Notes"          # e.g., Bring small flag
+]
+
+def _month_selector(label="Month"):
+    import streamlit as st
+    default_month = MONTHS[dt.date.today().month - 1]
+    return st.selectbox(label, options=MONTHS, index=MONTHS.index(default_month))
+
+def _year_selector(label="Year"):
+    import streamlit as st
+    this_year = dt.date.today().year
+    years = list(range(this_year - 1, this_year + 3))  # adjust window if you like
+    return st.selectbox(label, options=years, index=years.index(this_year))
+
+def _conform_columns(df: pd.DataFrame) -> pd.DataFrame:
+    # enforce exactly 6 columns; keep admin custom headers if present
+    cols = list(df.columns)
+    if len(cols) >= 6:
+        df = df.iloc[:, :6].copy()
+    else:
+        for _ in range(6 - len(cols)):
+            df[f"Col{len(df.columns)+1}"] = ""
+        df = df.iloc[:, :6].copy()
+
+    fixed_cols = []
+    for i, c in enumerate(df.columns):
+        name = str(c).strip()
+        if not name or name.startswith("Unnamed:"):
+            fixed_cols.append(DEFAULT_COLUMNS[i])
+        else:
+            fixed_cols.append(name)
+    df.columns = fixed_cols
+
+    for c in df.columns:
+        df[c] = df[c].fillna("").astype(str)
+    return df
+
+def render_special_days(user: dict | None, conn):
+    _render_card("🎉 Special Days", "Month-at-a-Glance")
+    month_choice = _month_selector("Month")
+    year_choice  = _year_selector("Year")
+
+    df = load_month_df(conn, month_choice, year_choice)
+
+    if df.empty or df.replace("", pd.NA).dropna(how="all").empty:
+        st.info("No special days added for this month yet.")
+    else:
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
+    _end_card()
+
+#This is for 🏆 Competitions & Enrichment Programs” -> This is for competitions_enrichment
+def _year_label_default():
+    # academic year inferred from today (Apr–Mar)
+    today = dt.date.today()
+    start_year = today.year if today.month >= 4 else today.year - 1
+    return f"{start_year}-{str(start_year+1)[-2:]}"
+
+
+def render_competitions(user: dict | None, conn):
+    import streamlit as st
+    import pandas as pd
+
+    ensure_competitions_meta_schema(conn)
+    ensure_competitions_meta_columns(conn)
+
+    _render_card("🏆 Competitions & Enrichment Programs")
+
+    year = st.selectbox("Academic Year", ["2025-26", "2024-25"], index=0, key="comp_student_year")
+
+    meta = load_meta(conn, year)
+    # hero block (styled a bit)
+    st.markdown(f"""
+    <div style="margin-bottom:8px">
+      <div style="font-weight:800; font-size:20px; color:#166534">{meta.get('hero_heading','').strip()}</div>
+      <div style="color:#14532d; margin-bottom:4px"><em>{meta.get('hero_subtitle','').strip()}</em></div>
+      <ul style="margin-top:0">
+        {''.join(f'<li><b>{x.strip()}</b></li>' for x in [meta.get('bullet1',''), meta.get('bullet2',''), meta.get('bullet3','')] if x and x.strip())}
+      </ul>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if meta.get("table_title"):
+        st.markdown(f"#### {meta['table_title']}")
+
+    df = load_items(conn, year)
+    if df.empty or df.replace("", pd.NA).dropna(how="all").empty:
+        st.info("No competitions/workshops added yet.")
+    else:
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
+    _end_card()
+
 
 # ---------- Sub-item Rendering ----------
 def render_sub_item(item: str, user: dict):
@@ -1057,6 +1346,135 @@ def render_sub_item(item: str, user: dict):
         _end_card()
 
 
+    # --- Timetable ---
+    elif item == "📆 My Timetable":
+        _render_card("📆 My Timetable")
+        try:
+            cur = conn.cursor()
+
+            # --- Normalizers ---
+            def to_roman(n):
+                m = {"1":"I","2":"II","3":"III","4":"IV","5":"V","6":"VI","7":"VII","8":"VIII","9":"IX","10":"X"}
+                return m.get(str(n), str(n).upper())
+            def from_roman(s):
+                m = {"I":"1","II":"2","III":"3","IV":"4","V":"5","VI":"6","VII":"7","VIII":"8","IX":"9","X":"10"}
+                return m.get(s.upper(), s)
+            def clean_name(s):
+                s = (s or "").strip().upper()
+                # drop trailing decorations like " (CLEAN)"
+                s = s.replace("(CLEAN)", "").strip()
+                return s
+
+            cls_raw = clean_name(str(user.get("class")))
+            sec = clean_name(str(user.get("section")))
+
+            # Build class_name candidates to match what’s in timetable
+            candidates = []
+            # raw
+            candidates.append(cls_raw)
+            # roman & digit variants
+            candidates.append(to_roman(cls_raw))
+            candidates.append(from_roman(cls_raw))
+            # also tolerate “CLASS X”
+            candidates.append(clean_name(cls_raw.replace("CLASS ","")))
+            # dedup & drop empties
+            cand = [c for i,c in enumerate(candidates) if c and c not in candidates[:i]]
+
+            DAY_LABELS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
+
+            # 1) Period headers (distinct per class candidates)
+            q_marks = ",".join(["?"]*len(cand))
+            params = cand + [sec]
+            cur.execute(f"""
+                SELECT DISTINCT period_no,
+                       COALESCE(label,''), COALESCE(start_time,''), COALESCE(end_time,'')
+                FROM timetable
+                WHERE UPPER(class_name) IN ({q_marks})
+                  AND UPPER(section)=?
+                ORDER BY period_no
+            """, params)
+            period_rows = cur.fetchall()
+            if not period_rows:
+                # Helpful hint: surface what classes actually exist so admin can reconcile
+                cur.execute("SELECT DISTINCT class_name, section FROM timetable ORDER BY class_name, section LIMIT 20")
+                existing = ", ".join([f"{r[0]}-{r[1]}" for r in cur.fetchall()]) or "none"
+                st.info(f"No timetable found for Class '{cls_raw}' / Section '{sec}'. "
+                        f"Tip: Available class/section pairs include: {existing}")
+                _end_card(); st.stop()
+
+            col_labels = []
+            for pno, lbl, stt, ent in period_rows:
+                disp = (lbl or f"Period {int(pno)}")
+                if stt or ent:
+                    disp += f"\n{stt}-{ent}"
+                col_labels.append((int(pno), disp))
+
+            # 2) Build week grid with teaching subjects
+            import pandas as pd
+            grid = pd.DataFrame(index=DAY_LABELS[:6], columns=[lbl for _, lbl in col_labels]); grid[:] = ""
+
+            params = cand + [sec]
+            cur.execute(f"""
+                SELECT day_of_week, period_no, COALESCE(subject,'')
+                FROM timetable
+                WHERE UPPER(class_name) IN ({q_marks})
+                  AND UPPER(section)=?
+                  AND slot_type='TEACHING'
+                ORDER BY day_of_week, period_no
+            """, params)
+            for dow, pno, subj in cur.fetchall():
+                day_name = DAY_LABELS[int(dow)-1]
+                plbl = dict(col_labels).get(int(pno))
+                if day_name in grid.index and plbl in grid.columns:
+                    grid.loc[day_name, plbl] = subj
+
+            st.dataframe(grid, use_container_width=True, hide_index=True)
+
+            # 3) Non-teaching caption
+            params = cand + [sec]
+            cur.execute(f"""
+                SELECT DISTINCT label, start_time, end_time
+                FROM timetable
+                WHERE UPPER(class_name) IN ({q_marks})
+                  AND UPPER(section)=?
+                  AND slot_type IN ('BREAK','LUNCH')
+                ORDER BY period_no
+            """, params)
+            nt = cur.fetchall()
+            if nt:
+                st.caption("Breaks: " + "; ".join([f"{(r[0] or 'Break/Lunch')} ({r[1] or ''}–{r[2] or ''})" for r in nt]))
+
+            # 4) Today view
+            from datetime import datetime
+            today_idx = datetime.today().weekday() + 1  # Mon=1..Sun=7
+            if today_idx <= 6:
+                st.subheader("Today")
+                params = cand + [sec, today_idx]
+                cur.execute(f"""
+                    SELECT period_no, COALESCE(label,''), COALESCE(start_time,''), COALESCE(end_time,''), COALESCE(subject,'')
+                    FROM timetable
+                    WHERE UPPER(class_name) IN ({q_marks})
+                      AND UPPER(section)=?
+                      AND slot_type='TEACHING'
+                      AND day_of_week=?
+                    ORDER BY period_no
+                """, params)
+                rows = cur.fetchall()
+                if rows:
+                    tdf = pd.DataFrame(
+                        [{"Period": int(r[0]), "Slot": r[1] or f"Period {int(r[0])}",
+                          "Start": r[2], "End": r[3], "Subject": r[4]} for r in rows]
+                    )
+                    st.dataframe(tdf, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No classes today.")
+        except Exception as e:
+            st.error(f"Error fetching timetable: {e}")
+        _end_card()
+
+    #-----------🎉 Special Days--------------------------
+    elif item == "🎉 Special Days":
+        render_special_days(user, conn)
 
 
     # --- School Notices ---
@@ -1223,7 +1641,133 @@ def render_sub_item(item: str, user: dict):
             available_years=["2023-24", "2024-25", "2025-26"]
         )
 
-        # --- Cafeteria ---
+    # --- Academic Assessment Calendar ---
+    elif item == "📊 Academic Assessment Calendar":
+        _render_card("📊 Academic Assessment Calendar")
+        try:
+            cur = conn.cursor()
+
+            # ---- class/section normalization (same as your timetable)
+            ROMAN = {"1":"I","2":"II","3":"III","4":"IV","5":"V","6":"VI","7":"VII","8":"VIII","9":"IX","10":"X"}
+            def norm_cls(x): 
+                s = (x or "").strip().upper().replace("CLASS ","")
+                return ROMAN.get(s, s)
+            cls_raw = (user.get("class") or "").strip().upper()
+            cls = norm_cls(cls_raw)
+            sec = (user.get("section") or "").strip().upper()
+            
+             # ✅ Define 'today' up-front so it always exists
+            from datetime import date
+            today = date.today().strftime("%Y-%m-%d")
+            
+            # build candidates
+            class_candidates = list({cls_raw, cls})  # e.g., {"1","I"}
+            q_marks = ",".join(["?"] * len(class_candidates)) if class_candidates else "?"
+            # params for this query: just class candidates + section (no ALL/ALL here)
+            params_types = (*class_candidates, sec)
+
+            # discover exam types EXCEPT PTM
+            cur.execute(f"""
+                SELECT DISTINCT UPPER(COALESCE(exam_type,'EXAM')) AS et
+                FROM exam_schedule
+                WHERE ((UPPER(class_name) IN ({q_marks}) AND UPPER(section)=?)
+                       OR (UPPER(class_name)='ALL' AND UPPER(section)='ALL'))
+                  AND UPPER(COALESCE(exam_type,'EXAM')) <> 'PTM'
+                ORDER BY et
+            """, params_types)
+            types = [r[0] for r in cur.fetchall()]
+
+            
+            
+            if not types:
+                st.info("No exams scheduled for your class/section.")
+            else:
+                # Friendly titles/icons (fallback works for any new type)
+                ICON = {
+                    "EXAM":"📝", "PT":"🧪", "TERM":"📚", "OLYMPIAD":"🏅",
+                    "INDIANTALENT":"🏆", "NATIONALCOMPETITION":"🏆"
+                }
+                TITLE = {
+                    "EXAM":"Exams", "PT":"Periodic Tests", "TERM":"Term Exams",
+                    "OLYMPIAD":"Olympiads", "INDIANTALENT":"Indian Talent", "NATIONALCOMPETITION":"National Competitions"
+                }
+
+                import pandas as pd
+                for et in types:
+                    st.subheader(f"{ICON.get(et,'📄')} {TITLE.get(et, et.title())}")
+
+                    # fetch rows of this type for student or global
+                    cur.execute(f"""
+                        SELECT exam_name, subject, exam_date,
+                               COALESCE(start_time,''), COALESCE(end_time,''),
+                               COALESCE(venue,''), COALESCE(notes,'')
+                        FROM exam_schedule
+                        WHERE ((UPPER(class_name) IN ({q_marks}) AND UPPER(section)=?)
+                               OR (UPPER(class_name)='ALL' AND UPPER(section)='ALL'))
+                          AND UPPER(COALESCE(exam_type,'EXAM'))=?
+                        ORDER BY date(exam_date) ASC, subject ASC
+                    """, (*class_candidates, sec, et))
+                    rows = cur.fetchall()
+
+                    if not rows:
+                        st.info(f"No items for {TITLE.get(et, et.title())}.")
+                        continue
+
+                    df = pd.DataFrame(rows, columns=["Exam", "Subject", "Date", "Start", "End", "Venue", "Notes"])
+                    upcoming = df[df["Date"] >= today]
+                    past     = df[df["Date"] <  today]
+
+                    if not upcoming.empty:
+                        st.dataframe(upcoming, use_container_width=True, hide_index=True)
+                    else:
+                        st.caption("No upcoming items.")
+
+                    if not past.empty:
+                        with st.expander("Past"):
+                            st.dataframe(past.sort_values("Date", ascending=False), use_container_width=True, hide_index=True)
+
+            st.divider()
+
+            # ---- 2) PTM (unchanged; still its own table)
+            cur.execute("""
+                SELECT meeting_date, COALESCE(start_time,''), COALESCE(end_time,''),
+                       COALESCE(venue,''), COALESCE(agenda,''), COALESCE(notes,'')
+                FROM ptm_schedule
+                WHERE (UPPER(class_name) IN (%s) AND UPPER(section)=?)
+                   OR (UPPER(class_name)='ALL' AND UPPER(section)='ALL')
+                ORDER BY date(meeting_date) ASC
+            """ % q_marks, (*class_candidates, sec))
+            ptm = cur.fetchall()
+
+            st.subheader("👨‍👩‍👧 PTM")
+            if ptm:
+                import pandas as pd
+                dfp = pd.DataFrame(ptm, columns=["Date","Start","End","Venue","Agenda","Notes"])
+                up = dfp[dfp["Date"] >= today]; past = dfp[dfp["Date"] < today]
+                if not up.empty:
+                    st.dataframe(up, use_container_width=True, hide_index=True)
+                else:
+                    st.caption("No upcoming PTM.")
+                if not past.empty:
+                    with st.expander("Past PTMs"):
+                        st.dataframe(past.sort_values("Date", ascending=False), use_container_width=True, hide_index=True)
+            else:
+                st.info("No PTM scheduled for your class/section.")
+
+        except Exception as e:
+            st.error(f"Error loading schedule: {e}")
+        _end_card()
+
+    
+    #🏆 Competitions & Enrichment Programs
+    elif item == "🏆 Competitions & Enrichment Programs":
+        render_competitions(user, conn)
+        
+    #📌 Key Guidelines
+    elif item == "📌 Key Guidelines":
+        render_key_guidelines(user, conn)
+        
+    # --- Cafeteria ---
     elif item == "🥗 Daily Menu":
         _render_card("🥗 Daily Menu")
         try:
@@ -1309,54 +1853,106 @@ def render_sub_item(item: str, user: dict):
     
     #📍 Live Bus Tracking
     elif item == "📍 Live Bus Tracking":
-        _render_card("📍 Live Bus Tracking")
         from streamlit_autorefresh import st_autorefresh
-        st_autorefresh(interval=10_000, key="bus_refresh")  # refresh every 10s
+        import folium
         try:
-            conn = get_connection()
-            cur = conn.cursor()
-            sid_int = user.get("id")
-            sid_legacy = user.get("student_id")
+            from streamlit_folium import st_folium
+        except ImportError:
+            st.error("Please install: pip install streamlit-folium folium")
+            _end_card(); return
 
+        _render_card("📍 Live Bus Tracking")
+        st_autorefresh(interval=10_000, key="bus_refresh")
+
+        try:
+            conn = get_connection(); cur = conn.cursor()
+            sid_int = user.get("id"); sid_legacy = user.get("student_id")
             cur.execute("""
-                SELECT st.bus_lat, st.bus_lon
+                SELECT st.bus_lat, st.bus_lon,
+                       COALESCE(r.route_name, st.route_name) AS route_name,
+                       r.vehicle_number, r.timing
                 FROM student_transport st
-                WHERE (st.fk_student_id = ?)
-                   OR (st.student_id    = ?)
+                LEFT JOIN transport_routes r ON r.id = st.fk_route_id
+                WHERE (st.fk_student_id = ?) OR (st.student_id = ?)
                 LIMIT 1
             """, (sid_int, sid_legacy))
             row = cur.fetchone()
             conn.close()
 
-            if row and row[0] and row[1]:
-                df_map = pd.DataFrame({"lat": [row[0]], "lon": [row[1]]})
-                st.map(df_map, zoom=12)
-            else:
-                st.info("Live location not available.")
+            if not row or row[0] is None or row[1] is None:
+                st.info("Live location not available yet.")
+                _end_card(); return
+
+            # ✅ force floats and sanity-print once (comment out later)
+            bus_lat = float(row[0]); bus_lon = float(row[1])
+            route_name, vehicle_number, timing = row[2], row[3], row[4]
+            # st.write("DEBUG bus coords:", bus_lat, bus_lon)
+
+            # Build map centered on the bus
+            fmap = folium.Map(location=[bus_lat, bus_lon], zoom_start=15, control_scale=True, tiles="OpenStreetMap")
+
+            popup_lines = []
+            if route_name:     popup_lines.append(f"<b>Route:</b> {route_name}")
+            if vehicle_number: popup_lines.append(f"<b>Vehicle:</b> {vehicle_number}")
+            if timing:         popup_lines.append(f"<b>Timing:</b> {timing}")
+            popup_html = "<br>".join(popup_lines) if popup_lines else "Bus location"
+
+            # Add both an icon marker and a circle marker (hard to miss)
+            folium.Marker(
+                location=[bus_lat, bus_lon],
+                tooltip="Bus (live)",
+                popup=folium.Popup(popup_html, max_width=320),
+                icon=folium.Icon(color="red", icon="info-sign")
+            ).add_to(fmap)
+
+            folium.CircleMarker(
+                location=[bus_lat, bus_lon],
+                radius=10,
+                color="#FF0000",
+                fill=True,
+                fill_opacity=0.6
+            ).add_to(fmap)
+
+            # Fit (even for a single point) to make sure it’s in view
+            fmap.fit_bounds([[bus_lat, bus_lon], [bus_lat, bus_lon]], padding=(20, 20))
+
+            # 👇 This keeps it wide like st.map
+            st_folium(fmap, height=700, use_container_width=True)
+
+            st.caption(f"Last known position: {bus_lat:.5f}, {bus_lon:.5f}")
+
         except Exception as e:
             st.error(f"Error fetching live location: {e}")
+
         _end_card()
+
+
+
+
 
     # --- Receipts ---
     elif item == "📜 Receipts":
         _render_card("📜 Receipts")
         render_receipts(user)   # call function to show receipts
         
-    #Live Bus Tracking
-    elif item == "📍 Live Bus Tracking":
-        _render_card("📍 Live Bus Tracking")
-        try:
-            cur.execute("SELECT bus_lat,bus_lon FROM student_transport WHERE student_id=?",(sid,))
-            row = cur.fetchone()
-            if row and row[0] and row[1]:
-                df = pd.DataFrame({"lat":[row[0]],"lon":[row[1]]})
-                st.map(df, zoom=12)
-            else:
-                st.info("Bus location not available.Please check if coordinates are in DB.")
-        except:
-            st.error("Error fetching bus location: {e}")
-        _end_card()
-        
+    # #Live Bus Tracking
+    # elif item == "📍 Live Bus Tracking":
+        # _render_card("📍 Live Bus Tracking")
+        # try:
+            # cur.execute("SELECT bus_lat,bus_lon FROM student_transport WHERE student_id=?",(sid,))
+            # row = cur.fetchone()
+            # if row and row[0] and row[1]:
+                # df = pd.DataFrame({"lat":[row[0]],"lon":[row[1]]})
+                # st.map(df, zoom=12)
+            # else:
+                # st.info("Bus location not available.Please check if coordinates are in DB.")
+        # except:
+            # st.error("Error fetching bus location: {e}")
+        # _end_card()
+
+    #Contacts Directory
+    elif item == "📞 Contacts":
+        render_contacts_student(user, conn)
     
     #AI Tutor
     elif item == "🤖 AI Tutor (24/7)":
@@ -1775,6 +2371,11 @@ def render_sub_item(item: str, user: dict):
             st.error(f"Error generating insights: {e}")
 
         _end_card()
+    
+    
+    #💬 Complaints & Suggestions
+    elif item == "💬 Complaints & Suggestions":
+        render_complaints_student(user, conn)
 
 
 import streamlit as st
