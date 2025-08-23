@@ -928,7 +928,7 @@ def init_db():
     cur.execute("CREATE INDEX IF NOT EXISTS idx_payments_fk_student_id ON payments(fk_student_id);")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_notices_class_section ON notices(class, section);")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_assignments_class_section ON assignments(class, section);")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_exam_lookup ON exam_schedule (upper(class_name), upper(section), exam_date, upper(exam_type));")
+    #cur.execute("CREATE INDEX IF NOT EXISTS idx_exam_lookup ON exam_schedule (upper(class_name), upper(section), exam_date, upper(exam_type));")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_ptm_lookup ON ptm_schedule (upper(class_name), upper(section), meeting_date);")
 
     
@@ -1992,3 +1992,4 @@ seed_achievements_and_principal_notes()
 seed_default_admin(_demo_school_id)
 seed_notices_homework_syllabus_timetable()
 # End of file
+
