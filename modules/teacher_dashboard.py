@@ -23,7 +23,9 @@ from gupshup_sender import (
 from openai import OpenAI
 import os
 
-st.secrets.get("OPENAI_API_KEY")
+api_key = st.secrets.get("OPENAI_API_KEY")
+
+OpenAI(api_key=api_key)
 
 
 #client = OpenAI(
