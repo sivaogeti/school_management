@@ -23,13 +23,13 @@ from gupshup_sender import (
 from openai import OpenAI
 import os
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+st.secrets.get("OPENAI_API_KEY")
 
 
-client = OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY"),
-    project="proj_FbqpY7CkwcT3ubju7iMeorRu"  # <-- replace with your real Project ID
-)
+#client = OpenAI(
+#    api_key=os.getenv("OPENAI_API_KEY"),
+#    project="proj_FbqpY7CkwcT3ubju7iMeorRu"  # <-- replace with your real Project ID
+#)
 
 # --- Helpers ---
 def encode_image_base64(file_path):
