@@ -149,10 +149,12 @@ from modules.curated_videos import CURATED_VIDEOS
 import uuid
 import altair as alt 
 
-from modules.openai_client import make_openai_client
+#from modules.openai_client import make_openai_client
 
-client = make_openai_client()
+#client = make_openai_client()
 # e.g. client.chat.completions.create(...)
+
+client = st.secrets["api_keys"]["openai_api_key"]
 
 
 if "ai_tutor_history" not in st.session_state:
