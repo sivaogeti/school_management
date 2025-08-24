@@ -517,9 +517,6 @@ def ai_tutor_response(user_input: str):
         return f"AI Tutor Error: {str(e)}", None
 
 
-
-YOUTUBE_API_KEY = "AIzaSyAQw29Zt3bIiGzCsvekq-brJFZdctFpfQM"  # put in .env or OS environment
-
 def get_video_url(query: str) -> str:
     """Return safe educational video URL for the query."""
     q = query.lower().strip()
