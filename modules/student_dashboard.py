@@ -149,7 +149,9 @@ from modules.curated_videos import CURATED_VIDEOS
 import uuid
 import altair as alt 
 
-client = OpenAI(api_key=st.secrets["openai_api_key"])
+api_key = st.secrets.get("OPENAI_API_KEY")
+
+client = OpenAI(api_key)
 
 
 
