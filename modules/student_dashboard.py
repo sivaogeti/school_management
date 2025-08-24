@@ -149,7 +149,7 @@ from modules.curated_videos import CURATED_VIDEOS
 import uuid
 import altair as alt 
 
-from openai_client import make_openai_client
+from modules.openai_client import make_openai_client
 
 client = make_openai_client()
 # e.g. client.chat.completions.create(...)
