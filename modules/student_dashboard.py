@@ -149,10 +149,13 @@ from modules.curated_videos import CURATED_VIDEOS
 import uuid
 import altair as alt 
 
-api_key = st.secrets.get("OPENAI_API_KEY")
+api_key = st.secrets.get("OPENAI_API_KEY")  # or "openai_api_key"
 
-client = OpenAI(api_key)
+if not api_key:
+    st.error("Missing API key. Add OPENAI_API_KEY (or openai_api_key) to Streamlit secrets.")
+    st.stop()
 
+client = OpenAI(api_key=api_key)  # <-- keyword argument
 
 
 if "ai_tutor_history" not in st.session_state:
