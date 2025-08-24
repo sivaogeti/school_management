@@ -154,7 +154,19 @@ import altair as alt
 #client = make_openai_client()
 # e.g. client.chat.completions.create(...)
 
-client = st.secrets["api_keys"]["openai_api_key"]
+# at the top of modules/student_dashboard.py
+import streamlit as st
+from openai import OpenAI
+
+@st.cache_resource(show_spinner=False)
+def get_openai_client() -> OpenAI:
+    key = st.secrets["api_keys"]["openai_api_key"]  # or your fallback logic
+    return OpenAI(api_key=key)
+
+client = get_openai_client()
+
+# Remove after testing
+assert hasattr(client, "chat"), "client was shadowed (likely set to a string)."
 
 
 if "ai_tutor_history" not in st.session_state:
