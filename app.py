@@ -463,8 +463,8 @@ else:
         from modules.principal_dashboard import render_principal_dashboard
         render_principal_dashboard(user)
 
-    elif role == "Front Office Admin":
-        from modules.frontoffice_dashboard import render_frontoffice_dashboard
+    elif role == "Front Office Admin":        
+        from modules.frontoffice_dashboard import render_front_office_dashboard
         render_frontoffice_dashboard(user)
         
     elif role == "Chairman":
