@@ -1237,6 +1237,7 @@ def render_competitions(user: dict | None, conn):
 
 # ---------- Sub-item Rendering ----------
 def render_sub_item(item: str, user: dict):
+    import pandas as pd  # bind pd for this whole function scope
     _student_topbar()
     sid = user.get("student_id")
     email = user.get("email")
